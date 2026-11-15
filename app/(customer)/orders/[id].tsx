@@ -74,6 +74,11 @@ export default function OrderDetailsScreen() {
   const [cardCvv, setCardCvv] = useState('408');
   const [selectedBank, setSelectedBank] = useState('Capitec Bank');
   const [verifyingPaystack, setVerifyingPaystack] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [restaurantRating, setRestaurantRating] = useState(5);
+  const [driverRating, setDriverRating] = useState(5);
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useEffect(() => {
     let isMounted = true; 
@@ -212,6 +217,60 @@ export default function OrderDetailsScreen() {
     }
   };
 
+  const handleCancelOrder = () => {
+    if (!order) return;
+    Alert.alert(
+      'Cancel Order',
+      order.payment_status === 'completed'
+        ? 'Are you sure you want to cancel this order? Your completed payment will be refunded automatically.'
+        : 'Are you sure you want to cancel this order?',
+      [
+        { text: 'Keep Order', style: 'cancel' },
+        {
+          text: 'Yes, Cancel Order',
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await orderService.cancelOrder(order.id, 'Cancelled by customer');
+              await fetchOrderDetails();
+              Alert.alert(
+                'Order Cancelled',
+                order.payment_status === 'completed'
+                  ? 'Your order has been cancelled and a refund has been initiated.'
+                  : 'Your order has been cancelled.'
+              );
+            } catch (err: any) {
+              const msg = err?.response?.data?.error || err?.message || 'Failed to cancel order';
+              Alert.alert('Cancellation Failed', msg);
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSubmitRating = async () => {
+    if (!order) return;
+    setSubmittingRating(true);
+    try {
+      await orderService.rateOrder(order.id, {
+        restaurant_rating: restaurantRating,
+        driver_rating: driverRating,
+      });
+      setRatingModalVisible(false);
+      await fetchOrderDetails();
+      Alert.alert('Thank You!', 'Your rating has been submitted.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to submit rating';
+      Alert.alert('Rating Error', msg);
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
   const getStatusSteps = () => {
     const steps = [
       { key: 'ordered', label: 'Placed', icon: 'receipt' },
@@ -336,7 +395,23 @@ export default function OrderDetailsScreen() {
             <View style={styles.statusBannerTextContainer}>
               <Text style={[styles.statusBannerTitle, { color: '#991B1B' }]}>Order Rejected / Cancelled</Text>
               <Text style={[styles.statusBannerSubtitle, { color: '#B91C1C' }]}>
-                This order was rejected by the restaurant manager and has been cancelled completely.
+                {order.payment_status === 'refunded'
+                  ? 'This order was cancelled and your payment has been refunded.'
+                  : 'This order has been cancelled.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {order.status === 'no_drivers_available' && (
+          <View style={[styles.statusBanner, { backgroundColor: '#FEF2F2', borderColor: '#EF4444' }]}>
+            <Ionicons name="alert-circle-outline" size={24} color="#DC2626" />
+            <View style={styles.statusBannerTextContainer}>
+              <Text style={[styles.statusBannerTitle, { color: '#991B1B' }]}>No Drivers Available</Text>
+              <Text style={[styles.statusBannerSubtitle, { color: '#B91C1C' }]}>
+                {order.payment_status === 'refunded'
+                  ? 'Sorry, no drivers were available nearby in time. Your payment has been automatically refunded.'
+                  : 'Sorry, no drivers were available nearby in time.'}
               </Text>
             </View>
           </View>
@@ -632,20 +707,42 @@ export default function OrderDetailsScreen() {
           </View>
         )}
 
+        {['pending', 'ordering_at_restaurant', 'order_ready', 'accepted_by_driver'].includes(order.status) && (
+          <View style={styles.actionButtons}>
+            <Button
+              title={cancelling ? 'Cancelling...' : 'Cancel Order'}
+              onPress={handleCancelOrder}
+              loading={cancelling}
+              variant="outline"
+              style={styles.actionButton}
+            />
+          </View>
+        )}
+
         {order.status === 'delivered' && (
           <View style={styles.actionButtons}>
             <Button
               title="Reorder"
               onPress={() => {
-                // Handle reorder
+                if ((order as any).restaurant_id) {
+                  router.push(`/(customer)/restaurants/${(order as any).restaurant_id}`);
+                } else {
+                  router.push('/(customer)/home');
+                }
               }}
               variant="primary"
               style={styles.actionButton}
             />
             <Button
-              title="Rate Order"
+              title={(order as any).restaurant_rating ? `Rated ★ ${(order as any).restaurant_rating}/5` : 'Rate Order'}
               onPress={() => {
-                // Handle rating
+                if ((order as any).restaurant_rating) {
+                  setRestaurantRating(Number((order as any).restaurant_rating) || 5);
+                }
+                if ((order as any).driver_rating) {
+                  setDriverRating(Number((order as any).driver_rating) || 5);
+                }
+                setRatingModalVisible(true);
               }}
               variant="outline"
               style={styles.actionButton}
@@ -653,6 +750,73 @@ export default function OrderDetailsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Rate Order Modal */}
+      <Modal
+        visible={ratingModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRatingModalVisible(false)}
+      >
+        <View style={styles.psModalOverlay}>
+          <View style={[styles.psModalCard, { padding: 20 }]}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 6 }}>
+              Rate Your Order
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 16 }}>
+              How was your experience with {order.restaurant_name} and your delivery?
+            </Text>
+
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 }}>
+              Restaurant ({order.restaurant_name})
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 18 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity key={`rest-${star}`} onPress={() => setRestaurantRating(star)}>
+                  <Ionicons
+                    name={star <= restaurantRating ? 'star' : 'star-outline'}
+                    size={32}
+                    color="#F59E0B"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 }}>
+              Delivery Driver {order.driver_first_name ? `(${order.driver_first_name})` : ''}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity key={`drv-${star}`} onPress={() => setDriverRating(star)}>
+                  <Ionicons
+                    name={star <= driverRating ? 'star' : 'star-outline'}
+                    size={32}
+                    color="#F59E0B"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  title="Cancel"
+                  onPress={() => setRatingModalVisible(false)}
+                  variant="outline"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  title={submittingRating ? 'Saving...' : 'Submit Rating'}
+                  onPress={handleSubmitRating}
+                  loading={submittingRating}
+                  variant="primary"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Paystack Checkout Modal */}
       <Modal

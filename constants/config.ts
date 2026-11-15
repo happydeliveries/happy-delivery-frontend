@@ -55,8 +55,8 @@ export const APP_CONFIG = {
   
   // Payment Settings
   PAYMENT: {
-    CURRENCY: 'USD',
-    CURRENCY_SYMBOL: '$',
+    CURRENCY: 'ZAR',
+    CURRENCY_SYMBOL: 'R',
     SUPPORTED_METHODS: ['card', 'mobile_money', 'cash'],
     STRIPE_PUBLISHABLE_KEY: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
     PAYSTACK_PUBLIC_KEY: process.env.EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY || '',
@@ -65,8 +65,8 @@ export const APP_CONFIG = {
   
   // Location Settings
   LOCATION: {
-    DEFAULT_LATITUDE: 40.7128, // New York
-    DEFAULT_LONGITUDE: -74.0060,
+    DEFAULT_LATITUDE: -23.9045, // South Africa
+    DEFAULT_LONGITUDE: 29.4689,
     DEFAULT_RADIUS_KM: 10,
     LOCATION_ACCURACY: 100, // meters
     MAX_LOCATION_AGE: 30000, // 30 seconds

@@ -73,11 +73,15 @@ const parseCoordinates = (location: any): LatLng | null => {
   }
   if (lat === 0 && lng === 0) return null;
 
-  // Auto-correct if lat/lng were swapped (e.g. South Africa lat ~ -22..-35, lng ~ 16..33)
-  if (lat > 0 && lng < 0) {
+  // Auto-correct only if lat is out of valid [-90, 90] bounds or clearly reversed SA coordinates
+  if ((Math.abs(lat) > 90 && Math.abs(lng) <= 90) || (lat >= 15 && lat <= 35 && lng <= -20 && lng >= -36)) {
     const tmp = lat;
     lat = lng;
     lng = tmp;
+  }
+
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return null;
   }
 
   return { latitude: lat, longitude: lng };
@@ -174,21 +178,10 @@ export default function TrackingScreen() {
           setRestaurantLocation(rCoords);
         }
 
-        // Parse driver coordinates
+        // Parse driver coordinates (only fallback to restaurant location when status === 'picked_up')
         let dCoords = parseCoordinates(data.driver_location);
-        if (
-          !dCoords &&
-          ['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'].includes(data.status)
-        ) {
-          // If driver is active/picked_up and hasn't sent a GPS ping yet, place driver at restaurant (or slightly offset from customer)
-          if (rCoords) {
-            dCoords = rCoords;
-          } else {
-            dCoords = {
-              latitude: (addrCoords?.latitude ?? userLocation.latitude) + 0.008,
-              longitude: (addrCoords?.longitude ?? userLocation.longitude) + 0.008,
-            };
-          }
+        if (!dCoords && data.status === 'picked_up' && rCoords) {
+          dCoords = rCoords;
         }
 
         if (dCoords) {
@@ -240,22 +233,42 @@ export default function TrackingScreen() {
               ? {
                   ...prev,
                   ...(data?.order || {}),
+                  verification_code: data?.order?.verification_code || prev.verification_code,
                   status: nextStatus,
                 }
               : data?.order || prev
           );
+          if (['picked_up', 'on_the_way', 'arrived'].includes(nextStatus)) {
+            fetchOrderData(true);
+          }
         } else {
           fetchOrderData(true);
         }
       };
 
+      const handleVerificationCode = (payload: any) => {
+        if (payload?.order_id === id && payload?.verification_code) {
+          setOrder((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  verification_code: payload.verification_code,
+                  code_expires_at: payload.code_expires_at || prev.code_expires_at,
+                }
+              : prev
+          );
+        }
+      };
+
       socket.on('driver_location', handleDriverLocation);
       socket.on('order_update', handleOrderUpdate);
+      socket.on('verification_code_generated', handleVerificationCode);
 
       return () => {
         clearInterval(pollInterval);
         socket.off('driver_location', handleDriverLocation);
         socket.off('order_update', handleOrderUpdate);
+        socket.off('verification_code_generated', handleVerificationCode);
       };
     }
 

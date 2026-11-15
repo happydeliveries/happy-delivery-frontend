@@ -65,12 +65,29 @@ export default function DriverOrderDetailsScreen() {
   const [isLiveTracking, setIsLiveTracking] = useState(false);
   
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const lastRestPersistRef = useRef<number>(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // --- 1. Fetch Data ---
   useEffect(() => {
     fetchOrderDetails();
   }, [id]);
+
+  // Listen for real-time order status changes (e.g. manager marks order_ready or customer cancels)
+  useEffect(() => {
+    if (!socket || !id) return;
+    socket.emit('join_order', id);
+    const handleOrderUpdate = (payload: any) => {
+      const nextStatus = payload?.status || payload?.new_status || payload?.order?.status;
+      if (nextStatus) {
+        fetchOrderDetails();
+      }
+    };
+    socket.on('order_update', handleOrderUpdate);
+    return () => {
+      socket.off('order_update', handleOrderUpdate);
+    };
+  }, [socket, id]);
 
   const fetchOrderDetails = async () => {
     try {
@@ -115,7 +132,13 @@ export default function DriverOrderDetailsScreen() {
     return undefined;
   };
 
-  const broadcastDriverPosition = (lat: number, lng: number, accuracy?: number | null, speed?: number | null) => {
+  const broadcastDriverPosition = (
+    lat: number,
+    lng: number,
+    accuracy?: number | null,
+    speed?: number | null,
+    forceRest = false
+  ) => {
     if (socket && order) {
       socket.emit('driver_location_update', {
         driverId: order.driver_id,
@@ -127,9 +150,13 @@ export default function DriverOrderDetailsScreen() {
         speed: speed ?? null,
       });
     }
-    driverService
-      .updateLocation(lat, lng, id, { accuracy: accuracy ?? null, speed: speed ?? null })
-      .catch(() => {});
+    const now = Date.now();
+    if (forceRest || now - lastRestPersistRef.current >= 15000) {
+      lastRestPersistRef.current = now;
+      driverService
+        .updateLocation(lat, lng, id, { accuracy: accuracy ?? null, speed: speed ?? null })
+        .catch(() => {});
+    }
   };
 
   // --- 2. Live GPS Socket + REST Broadcaster ---
@@ -138,10 +165,10 @@ export default function DriverOrderDetailsScreen() {
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
     const startTracking = async () => {
-      const activeStatuses = ['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'];
+      const activeStatuses = ['accepted_by_driver', 'order_ready', 'picked_up', 'on_the_way', 'arrived'];
       
       // If the order is complete or not in an active transit state, KILL the tracker
-      if (!order || !activeStatuses.includes(order.status)) {
+      if (!order || !order.driver_id || !activeStatuses.includes(order.status)) {
         stopTracking();
         return;
       }
@@ -287,6 +314,7 @@ export default function DriverOrderDetailsScreen() {
     }
     switch (order.status) {
       case 'accepted_by_driver':
+      case 'order_ready':
         return { label: 'Confirm Pick Up', status: 'picked_up', icon: 'cube' };
       case 'picked_up':
         return { label: 'Start Delivery', status: 'on_the_way', icon: 'navigate' };

@@ -47,6 +47,17 @@ export const orderService = {
     return api.get(`/orders/${orderId}/tracking`);
   },
 
+  async cancelOrder(orderId: string, reason?: string) {
+    return api.post(`/orders/${orderId}/cancel`, { reason });
+  },
+
+  async rateOrder(
+    orderId: string,
+    ratings: { restaurant_rating?: number; driver_rating?: number }
+  ) {
+    return api.post(`/orders/${orderId}/rate`, ratings);
+  },
+
   async processPayment(orderId: string, paymentMethod: string, paymentDetails?: any) {
     return api.post('/payments/process', {
       order_id: orderId,
