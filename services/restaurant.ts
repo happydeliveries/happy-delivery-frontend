@@ -1,17 +1,28 @@
 import api from './api';
 
 export const restaurantService = {
-  async searchRestaurants(lat: number, lng: number, filters = {}) {
+  async searchRestaurants(lat: number, lng: number, filters: Record<string, any> = {}) {
     const params = new URLSearchParams({
       lat: lat.toString(),
       lng: lng.toString(),
-      ...filters,
     });
-    return api.get(`/restaurants/search?${params}`);
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      if (Array.isArray(value)) {
+        if (value.length > 0) params.append(key, value.join(','));
+        return;
+      }
+      params.append(key, String(value));
+    });
+    return api.get(`/restaurants/search?${params.toString()}`);
   },
 
-  async getHomeFeed() {
-    return api.get('/restaurants/feed/home');
+  async getHomeFeed(lat?: number, lng?: number) {
+    const params = new URLSearchParams();
+    if (typeof lat === 'number' && Number.isFinite(lat)) params.append('lat', lat.toString());
+    if (typeof lng === 'number' && Number.isFinite(lng)) params.append('lng', lng.toString());
+    const qs = params.toString();
+    return api.get(qs ? `/restaurants/feed/home?${qs}` : '/restaurants/feed/home');
   },
 
   async getRestaurant(id: string) {
@@ -38,13 +49,12 @@ export const restaurantService = {
     return api.post(`/restaurants/${restaurantId}/menus/${menuId}/items`, data);
   },
 
-  async searchFood(query: string, lat: number, lng: number) {
-    const params = new URLSearchParams({
-      query: query,
-      lat: lat.toString(),
-      lng: lng.toString(),
-    });
-    return api.get(`/restaurants/search/food?${params}`);
+  async searchFood(query: string, lat?: number, lng?: number) {
+    const params = new URLSearchParams();
+    if (query !== undefined && query !== null) params.append('query', String(query));
+    if (typeof lat === 'number' && Number.isFinite(lat)) params.append('lat', lat.toString());
+    if (typeof lng === 'number' && Number.isFinite(lng)) params.append('lng', lng.toString());
+    return api.get(`/restaurants/search/food?${params.toString()}`);
   },
 
   async getMenuItemDetail(restaurantId: string, itemId: string) {

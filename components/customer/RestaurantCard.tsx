@@ -27,24 +27,28 @@ interface RestaurantCardProps {
 
 const RestaurantCard: React.FC<RestaurantCardProps> = ({ restaurant, onPress }) => {
   const getDistanceText = () => {
-    if (!restaurant.distance_meters) return '';
-    if (restaurant.distance_meters < 1000) {
-      return `${Math.round(restaurant.distance_meters)}m away`;
+    const meters = Number(restaurant.distance_meters);
+    if (!Number.isFinite(meters) || meters <= 0) return '';
+    if (meters < 1000) {
+      return `${Math.round(meters)}m away`;
     }
-    return `${(restaurant.distance_meters / 1000).toFixed(1)}km away`;
+    return `${(meters / 1000).toFixed(1)}km away`;
   };
 
   const getStatusColor = () => {
-    if (!restaurant.is_accepting_orders) return colors.error;
+    if (restaurant.is_accepting_orders === false) return colors.error;
     if (restaurant.availability_status === 'out_of_range') return colors.warning;
     return colors.success;
   };
 
   const getStatusText = () => {
-    if (!restaurant.is_accepting_orders) return 'Closed';
+    if (restaurant.is_accepting_orders === false) return 'Closed';
     if (restaurant.availability_status === 'out_of_range') return 'Out of range';
     return 'Open';
   };
+
+  const numericRating = Number(restaurant.average_rating);
+  const hasRating = Number.isFinite(numericRating) && numericRating > 0;
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
@@ -72,11 +76,11 @@ const RestaurantCard: React.FC<RestaurantCardProps> = ({ restaurant, onPress }) 
             {restaurant.name}
           </Text>
           
-          {restaurant.average_rating && (
+          {hasRating && (
             <View style={styles.ratingContainer}>
               <Feather name="star" size={14} color={colors.warning} />
               <Text style={styles.ratingText}>
-                {restaurant.average_rating.toFixed(1)}
+                {numericRating.toFixed(1)}
               </Text>
             </View>
           )}

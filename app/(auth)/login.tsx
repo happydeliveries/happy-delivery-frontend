@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router } from 'expo-router';
@@ -86,7 +87,15 @@ export default function LoginScreen() {
               secureTextEntry
             />
 
-            <TouchableOpacity style={styles.forgotPassword}>
+            <TouchableOpacity
+              style={styles.forgotPassword}
+              onPress={() =>
+                Alert.alert(
+                  'Reset Password',
+                  'Please email support@happydeliveries.co.za from your registered email address so our support team can reset your password.'
+                )
+              }
+            >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
 

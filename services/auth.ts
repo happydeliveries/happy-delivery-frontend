@@ -30,9 +30,42 @@ export const authService = {
     return api.put('/users/profile', data);
   },
 
+  async updateRoleProfile(data: any) {
+    return api.put('/users/role-profile', data);
+  },
+
+  async getAddresses() {
+    return api.get('/users/addresses');
+  },
+
+  async addAddress(address: {
+    label?: string;
+    street: string;
+    city?: string;
+    postal_code?: string;
+    instructions?: string;
+    latitude?: number;
+    longitude?: number;
+    is_default?: boolean;
+  }) {
+    return api.post('/users/addresses', address);
+  },
+
+  async removeAddress(addressId: string) {
+    return api.delete(`/users/addresses/${encodeURIComponent(addressId)}`);
+  },
+
   async logout() {
     await AsyncStorage.removeItem('token');
     await AsyncStorage.removeItem('user');
     return Promise.resolve();
   },
+};
+
+export const userService = {
+  updateProfile: authService.updateProfile,
+  updateRoleProfile: authService.updateRoleProfile,
+  getAddresses: authService.getAddresses,
+  addAddress: authService.addAddress,
+  removeAddress: authService.removeAddress,
 };

@@ -7,7 +7,8 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert, // Added for cart conflict dialog
+  Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -62,12 +63,20 @@ export default function RestaurantDetailsScreen() {
   // 2. Initialize state with the passed category, or default to 'All'
   const [selectedCategory, setSelectedCategory] = useState<string>(category || 'All');
   
-  const { addItem, restaurantId, setRestaurant: setCartRestaurant, clearCart } = useCartStore();
+  const {
+    addItem,
+    items: cartItems,
+    restaurantId,
+    total: cartTotal,
+    setRestaurant: setCartRestaurant,
+    clearCart,
+  } = useCartStore();
 
-  // 3. Add a listener to update the selection if the URL changes while the page is open
+  // 3. Reload restaurant details when ID changes
   useEffect(() => {
     // Safety check: Ensure ID exists and isn't the string "undefined"
     if (id && id !== 'undefined') {
+      setLoading(true);
       fetchRestaurantDetails();
       fetchMenuItems();
     } else {
@@ -128,44 +137,60 @@ export default function RestaurantDetailsScreen() {
   };
 
   // --- OPTIMIZATION: Memoized Categories ---
-  // Only recalculates when menuItems changes, not on every render
   const categories = useMemo(() => {
     const cats = ['All'];
     menuItems.forEach(item => {
-      if (item.category && !cats.includes(item.category)) {
+      if (item.category && !cats.some(c => c.toLowerCase() === item.category.toLowerCase())) {
         cats.push(item.category);
       }
     });
     return cats;
   }, [menuItems]);
 
+  // Sync selectedCategory whenever route category or loaded menu categories change
+  useEffect(() => {
+    if (!category) {
+      setSelectedCategory('All');
+      return;
+    }
+    const target = String(category).trim().toLowerCase();
+    const matched = categories.find(c => c.toLowerCase() === target);
+    setSelectedCategory(matched || 'All');
+  }, [category, categories]);
+
   // --- OPTIMIZATION: Memoized Filtering ---
   const filteredItems = useMemo(() => {
-    return selectedCategory === 'All' 
-      ? menuItems 
-      : menuItems.filter(item => item.category === selectedCategory);
+    return selectedCategory === 'All'
+      ? menuItems
+      : menuItems.filter(item => item.category.toLowerCase() === selectedCategory.toLowerCase());
   }, [selectedCategory, menuItems]);
 
-  // --- LOGIC: Cart Conflict Handling ---
+  // --- LOGIC: Closed & Cart Conflict Handling ---
   const handleAddToCart = (item: any) => {
     if (!restaurant) return;
 
-    // Check if user is ordering from a different restaurant
-    if (restaurantId && restaurantId !== id) {
+    if (restaurant.is_accepting_orders === false) {
       Alert.alert(
-        "Start new order?",
-        `You have items from another restaurant in your cart. Adding this item will clear your current cart.`,
+        'Restaurant Closed',
+        `${restaurant.name} is currently not accepting new orders.`
+      );
+      return;
+    }
+
+    // Only treat as conflict if there are actual items in the cart for another restaurant
+    if (cartItems.length > 0 && restaurantId && restaurantId !== id) {
+      Alert.alert(
+        'Start new order?',
+        'You have items from another restaurant in your cart. Adding this item will clear your current cart.',
         [
-          { text: "Cancel", style: "cancel" },
-          { 
-            text: "Start New Order", 
-            style: "destructive",
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Start New Order',
+            style: 'destructive',
             onPress: () => {
-              // If your store has a clear function, use it. 
-              // Otherwise, setting the new restaurant usually resets the cart in many implementations.
-              if (clearCart) clearCart(); 
+              if (clearCart) clearCart();
               addCreateItem(item);
-            } 
+            }
           }
         ]
       );
@@ -178,7 +203,14 @@ export default function RestaurantDetailsScreen() {
   // Helper to actually add the item
   const addCreateItem = (item: any) => {
     if (!restaurant) return;
-    
+
+    const basePrice = Number(item.price || 0);
+    const discPrice = item.discounted_price != null ? Number(item.discounted_price) : null;
+    const validDiscount =
+      discPrice !== null && Number.isFinite(discPrice) && discPrice > 0 && discPrice < basePrice
+        ? discPrice
+        : basePrice;
+
     setCartRestaurant(id, restaurant.name);
     addItem({
       restaurantId: id,
@@ -186,7 +218,7 @@ export default function RestaurantDetailsScreen() {
       menuItemId: item.id,
       name: item.name,
       description: item.description,
-      price: Number(item.unitPrice ?? item.discounted_price ?? item.price),
+      price: Number(item.unitPrice ?? validDiscount),
       quantity: item.quantity || 1,
       specialInstructions: item.specialInstructions,
       selectedOptions: item.selectedOptions,
@@ -297,10 +329,15 @@ export default function RestaurantDetailsScreen() {
           </View>
           
           {restaurant.phone_number && (
-            <View style={styles.infoRow}>
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={() => Linking.openURL(`tel:${restaurant.phone_number}`)}
+            >
               <Ionicons name="call" size={20} color={colors.primary} />
-              <Text style={styles.infoText}>{restaurant.phone_number}</Text>
-            </View>
+              <Text style={[styles.infoText, { color: colors.primary, fontWeight: '600' }]}>
+                {restaurant.phone_number}
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -351,6 +388,22 @@ export default function RestaurantDetailsScreen() {
           )}
         </View>
       </ScrollView>
+
+      {cartItems.length > 0 && (
+        <TouchableOpacity
+          style={styles.floatingCartBar}
+          activeOpacity={0.9}
+          onPress={() => router.push('/(customer)/cart')}
+        >
+          <View style={styles.floatingCartCount}>
+            <Text style={styles.floatingCartCountText}>
+              {cartItems.reduce((sum, ci) => sum + ci.quantity, 0)}
+            </Text>
+          </View>
+          <Text style={styles.floatingCartLabel}>View Cart</Text>
+          <Text style={styles.floatingCartPrice}>R{cartTotal.subtotal.toFixed(2)}</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }
@@ -558,5 +611,46 @@ const styles = StyleSheet.create({
   emptyMenuText: {
     fontSize: 16,
     color: colors.textTertiary,
+  },
+  floatingCartBar: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    bottom: 20,
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  floatingCartCount: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingCartCountText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  floatingCartLabel: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  floatingCartPrice: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 16,
   },
 });

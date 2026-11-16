@@ -50,6 +50,7 @@ type Restaurant = {
   address?: string;
   average_rating?: number;
   total_ratings?: number;
+  is_accepting_orders?: boolean;
 };
 
 const HEADER_HEIGHT = 60;
@@ -67,11 +68,17 @@ export default function MenuItemDetailScreen() {
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const { addItem, setRestaurant: setCartRestaurant, restaurantId: cartRestaurantId, clearCart } = useCartStore();
+  const {
+    addItem,
+    items: cartItems,
+    setRestaurant: setCartRestaurant,
+    restaurantId: cartRestaurantId,
+    clearCart,
+  } = useCartStore();
 
   // --- Effects ---
   useEffect(() => {
-    if (id && restaurantId) {
+    if (id && restaurantId && restaurantId !== 'undefined') {
       fetchMenuItemDetails();
       fetchRestaurantDetails();
     } else {
@@ -206,6 +213,19 @@ export default function MenuItemDetailScreen() {
   const handleAddToCart = () => {
     if (!menuItem || !restaurant) return;
 
+    if (menuItem.is_available === false) {
+      Alert.alert('Item Unavailable', `${menuItem.name} is currently out of stock.`);
+      return;
+    }
+
+    if (restaurant.is_accepting_orders === false) {
+      Alert.alert(
+        'Restaurant Closed',
+        `${restaurant.name} is currently not accepting new orders.`
+      );
+      return;
+    }
+
     // Validate required option groups
     for (const group of customizationGroups) {
       const picked = selectedCustomizations[group.name] || [];
@@ -218,8 +238,8 @@ export default function MenuItemDetailScreen() {
       }
     }
 
-    // Check if user is ordering from a different restaurant
-    if (cartRestaurantId && cartRestaurantId !== restaurantId) {
+    // Check if user is ordering from a different restaurant (only when cart has items)
+    if (cartItems.length > 0 && cartRestaurantId && cartRestaurantId !== restaurantId) {
       Alert.alert(
         'Start new order?',
         `You have items from another restaurant in your cart. Adding this item will clear your current cart.`,
@@ -470,7 +490,7 @@ export default function MenuItemDetailScreen() {
                   </Text>
                 )}
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.gray} />
+              <Ionicons name="chevron-forward" size={20} color={colors.gray400} />
             </TouchableOpacity>
           )}
 

@@ -1,4 +1,4 @@
-import React, { forwardRef, useMemo, useRef, useState, useEffect } from 'react';
+import React, { ComponentRef, forwardRef, useMemo, useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -135,7 +135,7 @@ type FieldProps = TextInputProps & {
   containerStyle?: ViewStyle;
 };
 
-const Field = forwardRef<TextInput, FieldProps>(function Field(
+const Field = forwardRef<ComponentRef<typeof TextInput>, FieldProps>(function Field(
   { label, error, hint, isPassword, containerStyle, onFocus, onBlur, style, ...rest },
   ref,
 ) {
@@ -206,7 +206,7 @@ export default function RegisterScreen() {
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const inputRefs = useRef<Partial<Record<FieldKey, TextInput | null>>>({});
+  const inputRefs = useRef<Partial<Record<FieldKey, ComponentRef<typeof TextInput> | null>>>({});
 
   useEffect(() => {
     if (params.role) setRole(params.role as UserRole);
@@ -324,7 +324,7 @@ export default function RegisterScreen() {
     const isLast = visibleFields[visibleFields.length - 1] === key;
     return {
       label: '',
-      ref: (el: TextInput | null) => {
+      ref: (el: ComponentRef<typeof TextInput> | null) => {
         inputRefs.current[key] = el;
       },
       value: values[key],

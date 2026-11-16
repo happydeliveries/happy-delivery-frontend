@@ -56,11 +56,11 @@ export default function AddMenuItemScreen() {
 
     try {
       // NOTE: Using api.post directly here is fine for file uploads as it requires specific headers
-      const response = await api.post('/restaurants/upload', formData, {
+      const response: any = await api.post('/restaurants/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       // Handle the unwrapped response structure from api.ts
-      const url = response.data?.url || response.url;
+      const url = response?.data?.url || response?.url;
       setForm(prev => ({ ...prev, image_url: url }));
     } catch (error) {
       Alert.alert('Upload Failed', 'Could not upload image to server.');

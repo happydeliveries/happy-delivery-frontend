@@ -9,13 +9,24 @@ type LocationType = {
   coords: {
     latitude: number;
     longitude: number;
-    accuracy?: number;
+    accuracy?: number | null;
     altitude?: number | null;
     altitudeAccuracy?: number | null;
     heading?: number | null;
     speed?: number | null;
   };
   timestamp: number;
+};
+
+export type StructuredAddress = {
+  street: string;
+  name: string;
+  city: string;
+  district: string;
+  region: string;
+  postalCode: string;
+  country: string;
+  formattedAddress: string;
 };
 
 export const useLocation = () => {
@@ -70,6 +81,44 @@ export const useLocation = () => {
       return null;
     } catch (error) {
       console.error('Error getting address:', error);
+      return null;
+    }
+  };
+
+  // Function to get structured address details from coordinates
+  const getAddressDetailsFromCoords = async (
+    lat: number,
+    lng: number
+  ): Promise<StructuredAddress | null> => {
+    try {
+      const [address] = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
+      });
+
+      if (address) {
+        const streetLine = [address.streetNumber, address.street].filter(Boolean).join(' ').trim();
+        const parts = [
+          streetLine || address.name || '',
+          address.city || address.subregion || '',
+          address.region || '',
+          address.country || '',
+        ].filter(Boolean);
+
+        return {
+          street: streetLine || address.street || '',
+          name: address.name || '',
+          city: address.city || address.subregion || '',
+          district: address.district || address.subregion || '',
+          region: address.region || '',
+          postalCode: address.postalCode || '',
+          country: address.country || '',
+          formattedAddress: parts.join(', '),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting structured address:', error);
       return null;
     }
   };
@@ -130,7 +179,9 @@ export const useLocation = () => {
     errorMsg,
     loading,
     updateLocation,
+    getCurrentLocation: () => updateLocation(false),
     getAddressFromCoords,
+    getAddressDetailsFromCoords,
     startWatching,
   };
 };

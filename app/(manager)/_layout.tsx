@@ -22,7 +22,7 @@ export default function ManagerLayout() {
           title: 'Dashboard',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'grid' : 'grid-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'grid' : 'grid-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -34,7 +34,7 @@ export default function ManagerLayout() {
           title: 'Restaurants',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'restaurant' : 'restaurant-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'restaurant' : 'restaurant-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -70,7 +70,7 @@ export default function ManagerLayout() {
           title: 'Profile',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import { CART_CONFIG, STORAGE_KEYS } from '../constants/config';
+import { CART_CONFIG, ORDER_CONFIG, STORAGE_KEYS } from '../constants/config';
 import { cartService } from '../services/cart'; // We'll create this service next
 
 export type CartItem = {
@@ -38,7 +38,7 @@ export const useCart = () => {
     restaurant_id: null,
     restaurant_name: null,
     subtotal: 0,
-    delivery_fee: CART_CONFIG.DEFAULT_DELIVERY_FEE,
+    delivery_fee: ORDER_CONFIG.DEFAULT_DELIVERY_FEE,
     tax_amount: 0,
     tip_amount: 0,
     total_amount: 0,
@@ -92,11 +92,11 @@ export const useCart = () => {
     );
     
     // Free delivery threshold
-    const delivery_fee = subtotal >= CART_CONFIG.FREE_DELIVERY_THRESHOLD 
+    const delivery_fee = subtotal >= ORDER_CONFIG.FREE_DELIVERY_THRESHOLD 
       ? 0 
-      : CART_CONFIG.DEFAULT_DELIVERY_FEE;
+      : ORDER_CONFIG.DEFAULT_DELIVERY_FEE;
     
-    const tax_amount = subtotal * CART_CONFIG.TAX_RATE;
+    const tax_amount = subtotal * ORDER_CONFIG.TAX_RATE;
     const total_amount = subtotal + delivery_fee + tax_amount + cart.tip_amount;
 
     setCart(prev => ({
@@ -127,7 +127,7 @@ export const useCart = () => {
                   restaurant_id: restaurantId,
                   restaurant_name: restaurantName,
                   subtotal: (item.discounted_price || item.price),
-                  delivery_fee: CART_CONFIG.DEFAULT_DELIVERY_FEE,
+                  delivery_fee: ORDER_CONFIG.DEFAULT_DELIVERY_FEE,
                   tax_amount: 0,
                   tip_amount: 0,
                   total_amount: 0,
@@ -267,7 +267,7 @@ export const useCart = () => {
       restaurant_id: null,
       restaurant_name: null,
       subtotal: 0,
-      delivery_fee: CART_CONFIG.DEFAULT_DELIVERY_FEE,
+      delivery_fee: ORDER_CONFIG.DEFAULT_DELIVERY_FEE,
       tax_amount: 0,
       tip_amount: 0,
       total_amount: 0,
@@ -287,13 +287,13 @@ export const useCart = () => {
     }
 
     // Check minimum order amount
-    if (cart.subtotal < CART_CONFIG.MIN_ORDER_AMOUNT) {
-      errors.push(`Minimum order amount is R${CART_CONFIG.MIN_ORDER_AMOUNT.toFixed(2)}`);
+    if (cart.subtotal < ORDER_CONFIG.MIN_ORDER_AMOUNT) {
+      errors.push(`Minimum order amount is R${ORDER_CONFIG.MIN_ORDER_AMOUNT.toFixed(2)}`);
     }
 
     // Check maximum order amount
-    if (cart.subtotal > CART_CONFIG.MAX_ORDER_AMOUNT) {
-      errors.push(`Maximum order amount is R${CART_CONFIG.MAX_ORDER_AMOUNT.toFixed(2)}`);
+    if (cart.subtotal > ORDER_CONFIG.MAX_ORDER_AMOUNT) {
+      errors.push(`Maximum order amount is R${ORDER_CONFIG.MAX_ORDER_AMOUNT.toFixed(2)}`);
     }
 
     // Check item availability

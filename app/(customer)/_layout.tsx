@@ -30,7 +30,7 @@ export default function CustomerLayout() {
           title: 'Home',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -42,7 +42,7 @@ export default function CustomerLayout() {
           title: 'Search',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'search' : 'search-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'search' : 'search-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -54,7 +54,7 @@ export default function CustomerLayout() {
           title: 'Orders',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <MaterialIcons name="receipt-long" size={size} color={color} />
+              <MaterialIcons name="receipt-long" size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -66,7 +66,7 @@ export default function CustomerLayout() {
           title: 'Cart',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'cart' : 'cart-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'cart' : 'cart-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
           tabBarBadge: cartCount > 0 ? cartCount : undefined,
@@ -79,7 +79,7 @@ export default function CustomerLayout() {
           title: 'Profile',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Feather name="user" size={size} color={color} />
+              <Feather name="user" size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}

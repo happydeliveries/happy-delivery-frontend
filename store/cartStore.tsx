@@ -36,18 +36,47 @@ type CartStore = {
   calculateTotals: () => void;
 };
 
-const calculateItemId = (item: Omit<CartItem, 'id'>) => {
-  return `${item.menuItemId}-${JSON.stringify(item.selectedOptions || {})}`;
+const sortOptions = (options: Record<string, any> = {}): Record<string, any> => {
+  const sorted: Record<string, any> = {};
+  Object.keys(options)
+    .sort()
+    .forEach((key) => {
+      const val = options[key];
+      if (val !== undefined && val !== null) {
+        sorted[key] = val;
+      }
+    });
+  return sorted;
+};
+
+const buildCartItemKey = (menuItemId: string, selectedOptions: Record<string, any> = {}) => {
+  return `${menuItemId}-${JSON.stringify(sortOptions(selectedOptions))}`;
+};
+
+const calculateItemId = (item: Pick<CartItem, 'menuItemId' | 'selectedOptions'>) => {
+  return buildCartItemKey(item.menuItemId, item.selectedOptions || {});
 };
 
 const calculateDeliveryFee = (subtotal: number) => {
   if (subtotal === 0) return 0;
-  if (subtotal > 25) return 0; // Free delivery over $25
+  if (subtotal > 25) return 0; // Free delivery over R25
   return 3.99;
 };
 
 const calculateTax = (subtotal: number) => {
   return subtotal * 0.08; // 8% tax
+};
+
+const computeCartTotals = (items: CartItem[]) => {
+  const subtotal = items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
+  const deliveryFee = calculateDeliveryFee(subtotal);
+  const tax = calculateTax(subtotal);
+  return {
+    subtotal,
+    deliveryFee,
+    tax,
+    total: subtotal + deliveryFee + tax,
+  };
 };
 
 export const useCartStore = create<CartStore>()(
@@ -60,124 +89,86 @@ export const useCartStore = create<CartStore>()(
         tax: 0,
         total: 0,
       },
-      
+
       addItem: (itemData) => {
-        const itemId = calculateItemId(itemData);
-        const state = get();
-        
-        // Check if we're adding from a different restaurant
-        if (state.restaurantId && state.restaurantId !== itemData.restaurantId) {
-          // Clear cart if adding from different restaurant
-          set({
-            items: [],
-            restaurantId: itemData.restaurantId,
-            restaurantName: itemData.restaurantName,
-          });
-        }
-        
+        const normalizedOptions = sortOptions(itemData.selectedOptions || {});
+        const itemId = buildCartItemKey(itemData.menuItemId, normalizedOptions);
+
         set((state) => {
-          const existingItemIndex = state.items.findIndex(
-            (item) => calculateItemId(item) === itemId
+          const isDifferentRestaurant =
+            Boolean(state.restaurantId) &&
+            state.items.length > 0 &&
+            state.restaurantId !== itemData.restaurantId;
+
+          const baseItems = isDifferentRestaurant ? [] : state.items;
+          const existingItemIndex = baseItems.findIndex(
+            (item) => calculateItemId(item) === itemId || item.id === itemId
           );
-          
+
+          let updatedItems: CartItem[];
           if (existingItemIndex >= 0) {
-            // Update quantity of existing item
-            const updatedItems = [...state.items];
-            updatedItems[existingItemIndex].quantity += itemData.quantity;
-            
-            const subtotal = updatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const deliveryFee = calculateDeliveryFee(subtotal);
-            const tax = calculateTax(subtotal);
-            
-            return {
-              items: updatedItems,
-              restaurantId: itemData.restaurantId,
-              restaurantName: itemData.restaurantName,
-              total: {
-                subtotal,
-                deliveryFee,
-                tax,
-                total: subtotal + deliveryFee + tax,
-              },
-            };
+            updatedItems = baseItems.map((item, idx) =>
+              idx === existingItemIndex
+                ? { ...item, quantity: item.quantity + itemData.quantity }
+                : item
+            );
           } else {
-            // Add new item
-            const newItem = {
+            const newItem: CartItem = {
               ...itemData,
+              selectedOptions: normalizedOptions,
               id: itemId,
             };
-            
-            const updatedItems = [...state.items, newItem];
-            const subtotal = updatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const deliveryFee = calculateDeliveryFee(subtotal);
-            const tax = calculateTax(subtotal);
-            
-            return {
-              items: updatedItems,
-              restaurantId: itemData.restaurantId,
-              restaurantName: itemData.restaurantName,
-              total: {
-                subtotal,
-                deliveryFee,
-                tax,
-                total: subtotal + deliveryFee + tax,
-              },
-            };
+            updatedItems = [...baseItems, newItem];
           }
-        });
-      },
-      
-      removeItem: (menuItemId, selectedOptions = {}) => {
-        const itemId = `${menuItemId}-${JSON.stringify(selectedOptions)}`;
-        
-        set((state) => {
-          const updatedItems = state.items.filter((item) => calculateItemId(item) !== itemId);
-          
-          const subtotal = updatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-          const deliveryFee = calculateDeliveryFee(subtotal);
-          const tax = calculateTax(subtotal);
-          
+
           return {
             items: updatedItems,
-            total: {
-              subtotal,
-              deliveryFee,
-              tax,
-              total: subtotal + deliveryFee + tax,
-            },
+            restaurantId: itemData.restaurantId,
+            restaurantName: itemData.restaurantName,
+            total: computeCartTotals(updatedItems),
           };
         });
       },
-      
+
+      removeItem: (menuItemId, selectedOptions = {}) => {
+        const itemId = buildCartItemKey(menuItemId, selectedOptions);
+
+        set((state) => {
+          const updatedItems = state.items.filter(
+            (item) => calculateItemId(item) !== itemId && item.id !== itemId
+          );
+
+          return {
+            items: updatedItems,
+            restaurantId: updatedItems.length === 0 ? undefined : state.restaurantId,
+            restaurantName: updatedItems.length === 0 ? undefined : state.restaurantName,
+            total: computeCartTotals(updatedItems),
+          };
+        });
+      },
+
       updateQuantity: (menuItemId, quantity, selectedOptions = {}) => {
-        const itemId = `${menuItemId}-${JSON.stringify(selectedOptions)}`;
-        
+        const itemId = buildCartItemKey(menuItemId, selectedOptions);
+
         if (quantity <= 0) {
           get().removeItem(menuItemId, selectedOptions);
           return;
         }
-        
+
         set((state) => {
           const updatedItems = state.items.map((item) =>
-            calculateItemId(item) === itemId ? { ...item, quantity } : item
+            calculateItemId(item) === itemId || item.id === itemId
+              ? { ...item, quantity }
+              : item
           );
-          
-          const subtotal = updatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-          const deliveryFee = calculateDeliveryFee(subtotal);
-          const tax = calculateTax(subtotal);
-          
+
           return {
             items: updatedItems,
-            total: {
-              subtotal,
-              deliveryFee,
-              tax,
-              total: subtotal + deliveryFee + tax,
-            },
+            total: computeCartTotals(updatedItems),
           };
         });
       },
-      
+
       clearCart: () => {
         set({
           items: [],
@@ -191,24 +182,15 @@ export const useCartStore = create<CartStore>()(
           },
         });
       },
-      
+
       setRestaurant: (restaurantId, restaurantName) => {
         set({ restaurantId, restaurantName });
       },
-      
+
       calculateTotals: () => {
         const state = get();
-        const subtotal = state.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const deliveryFee = calculateDeliveryFee(subtotal);
-        const tax = calculateTax(subtotal);
-        
         set({
-          total: {
-            subtotal,
-            deliveryFee,
-            tax,
-            total: subtotal + deliveryFee + tax,
-          },
+          total: computeCartTotals(state.items),
         });
       },
     }),

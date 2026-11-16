@@ -82,10 +82,10 @@ export default function EditMenuItemScreen() {
     formData.append('image', { uri, type: 'image/jpeg', name: 'food.jpg' });
 
     try {
-      const response = await api.post('/restaurants/upload', formData, {
+      const response: any = await api.post('/restaurants/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      const url = response.data?.url || response.url;
+      const url = response?.data?.url || response?.url;
       setForm(prev => ({ ...prev, image_url: url }));
     } catch (error) {
       Alert.alert('Error', 'Image upload failed');

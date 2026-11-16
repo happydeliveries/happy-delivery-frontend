@@ -68,7 +68,7 @@ export default function CreateRestaurantScreen() {
     });
 
     try {
-        const response = await api.post('/restaurants/upload', formData, {
+        const response: any = await api.post('/restaurants/upload', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
         
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   submitBtn: { marginTop: 30, marginBottom: 50 },
   modalContainer: { flex: 1 },
-  fullMap: { ...StyleSheet.absoluteFillObject },
+  fullMap: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapFooter: { 
     position: 'absolute', 
     bottom: 0, 

@@ -55,12 +55,13 @@ export default function DriverEarningsScreen() {
       setLoading(true);
       
       // Fetch summary
-      const summaryData = await driverService.getEarningsSummary();
-      setSummary(summaryData);
+      const summaryData: any = await driverService.getEarningsSummary();
+      setSummary(summaryData?.data ?? summaryData ?? null);
       
       // Fetch daily earnings for chart
-      const dailyData = await driverService.getDailyEarnings(selectedPeriod);
-      setDailyEarnings(dailyData);
+      const dailyData: any = await driverService.getDailyEarnings(selectedPeriod);
+      const normalizedDaily = Array.isArray(dailyData) ? dailyData : dailyData?.data ?? [];
+      setDailyEarnings(normalizedDaily);
     } catch (error) {
       console.error('Error fetching earnings:', error);
     } finally {
@@ -269,7 +270,7 @@ export default function DriverEarningsScreen() {
               <MaterialIcons name="trending-up" size={20} color={colors.info} />
             </View>
             <Text style={styles.statCardValue}>
-              ${summary?.totalDeliveries > 0 ? (summary.totalEarnings / summary.totalDeliveries).toFixed(2) : '0.00'}
+              ${summary && summary.totalDeliveries > 0 ? (summary.totalEarnings / summary.totalDeliveries).toFixed(2) : '0.00'}
             </Text>
             <Text style={styles.statCardLabel}>Lifetime Average</Text>
           </View>

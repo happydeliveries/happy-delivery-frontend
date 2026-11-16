@@ -421,7 +421,7 @@ export default function TrackingScreen() {
       <MapView
         ref={mapRef}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         mapPadding={{ top: insets.top + 60, right: 20, bottom: showQR ? 420 : 280, left: 20 }}
         initialRegion={{
           latitude: effectiveDriverLocation?.latitude || userLocation.latitude,
@@ -639,6 +639,25 @@ export default function TrackingScreen() {
               </View>
             )}
           </View>
+        )}
+
+        {(order.status === 'delivered' || order.status === 'cancelled') && (
+          <TouchableOpacity
+            style={styles.terminalCtaBtn}
+            activeOpacity={0.85}
+            onPress={() => router.replace(`/(customer)/orders/${order.id}`)}
+          >
+            <Ionicons
+              name={order.status === 'delivered' ? 'star-outline' : 'receipt-outline'}
+              size={18}
+              color="#fff"
+            />
+            <Text style={styles.terminalCtaText}>
+              {order.status === 'delivered'
+                ? 'Rate Your Order / View Receipt'
+                : 'View Order Details'}
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -1048,5 +1067,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.primary,
     fontWeight: '600',
+  },
+  terminalCtaBtn: {
+    marginTop: 14,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  terminalCtaText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

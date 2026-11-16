@@ -27,7 +27,11 @@ type DriverOrder = {
   id: string;
   order_number: string;
   status: string;
-  total_amount: number;
+  total_amount?: number | null;
+  delivery_fee?: number | null;
+  tip_amount?: number | null;
+  driver_earnings?: number | null;
+  pricing_hidden?: boolean;
   restaurant_name: string;
   restaurant_address?: string;
   customer_name: string;
@@ -171,10 +175,34 @@ export default function DriverOrdersScreen() {
         </View>
         
         <View style={styles.orderFooter}>
-          <View>
-             <Text style={styles.amountLabel}>Earnings</Text>
-             <Text style={styles.orderAmount}>R{item.total_amount ? (item.total_amount * 0.7).toFixed(2) : '0.00'}</Text>
-          </View>
+          {item.status === 'delivered' ? (
+            <View>
+              <Text style={styles.amountLabel}>Completed Payout</Text>
+              <Text style={styles.orderAmount}>
+                R{Number(
+                  item.driver_earnings ??
+                    ((Number(item.delivery_fee || 0) > 0
+                      ? Number(item.delivery_fee || 0) * 0.7
+                      : Number(item.total_amount || 0) * 0.15) +
+                      Number(item.tip_amount || 0))
+                ).toFixed(2)}
+              </Text>
+              <Text style={styles.completedMetaText}>
+                Order R{Number(item.total_amount || 0).toFixed(2)}
+                {Number(item.tip_amount || 0) > 0
+                  ? ` • Tip R${Number(item.tip_amount || 0).toFixed(2)}`
+                  : ''}
+              </Text>
+            </View>
+          ) : (
+            <View>
+              <Text style={styles.amountLabel}>Order Price & Tip</Text>
+              <View style={styles.hiddenPayoutRow}>
+                <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
+                <Text style={styles.hiddenPayoutText}>Revealed on delivery</Text>
+              </View>
+            </View>
+          )}
           
           {isRequest ? (
             <TouchableOpacity 
@@ -293,6 +321,7 @@ const styles = StyleSheet.create({
   listContent: { padding: 20 },
   orderCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, elevation: 2 },
   orderHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  orderInfo: { flex: 1, marginRight: 10 },
   orderNumber: { fontSize: 16, fontWeight: 'bold', color: colors.textPrimary },
   orderDate: { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
@@ -309,6 +338,9 @@ const styles = StyleSheet.create({
   orderFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border },
   amountLabel: { fontSize: 12, color: colors.textTertiary },
   orderAmount: { fontSize: 18, fontWeight: 'bold', color: colors.success },
+  completedMetaText: { fontSize: 11.5, color: colors.textSecondary, marginTop: 2, fontWeight: '600' },
+  hiddenPayoutRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  hiddenPayoutText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
   
   acceptButton: { flexDirection: 'row', backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12, alignItems: 'center' },
   acceptButtonText: { color: '#fff', fontWeight: 'bold', marginRight: 8 },

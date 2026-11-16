@@ -19,13 +19,23 @@ import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 
 // Hooks & Services
-import { useLocation } from '../../../../hooks/useLocation';
-import { useAuth } from '../../../../hooks/useAuth';
-import { restaurantService } from '../../../../services/restaurant';
+import { useLocation } from './hooks/useLocation';
+import { useAuth } from './hooks/useAuth';
+import { restaurantService } from './services/restaurant';
 
 // Constants
-import { colors } from '../../../constants/colors';
-import { shadows, spacing } from '../../../constants/theme';
+import { colors } from './constants/colors';
+
+const spacing = { xs: 4, sm: 8, md: 16, lg: 24 };
+const shadows = {
+  small: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+};
 
 const { width } = Dimensions.get('window');
 
@@ -88,7 +98,7 @@ export default function CustomerHomeScreen() {
       
       // Parallel fetching for speed
       const [feedResponse, searchResponse] = await Promise.all([
-        restaurantService.getHomeFeed().catch(err => ({ data: { success: false } })), // Fail gracefully if endpoint missing
+        restaurantService.getHomeFeed().catch((_err: any) => ({ data: { success: false } }) as any), // Fail gracefully if endpoint missing
         restaurantService.searchRestaurants(
           location.coords.latitude,
           location.coords.longitude,

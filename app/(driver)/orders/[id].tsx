@@ -29,8 +29,8 @@ type OrderItem = {
   name: string;
   item_name?: string;
   quantity: number;
-  unit_price: number;
-  total_price?: number;
+  unit_price?: number | null;
+  total_price?: number | null;
   special_instructions?: string;
   selected_options?: any;
 };
@@ -41,11 +41,13 @@ type Order = {
   status: string;
   payment_status?: string;
   payment_method?: string;
-  subtotal: number;
-  delivery_fee: number;
-  tax_amount: number;
-  tip_amount: number;
-  total_amount: number;
+  subtotal?: number | null;
+  delivery_fee?: number | null;
+  tax_amount?: number | null;
+  tip_amount?: number | null;
+  total_amount?: number | null;
+  driver_earnings?: number | null;
+  pricing_hidden?: boolean;
   placed_at: string;
   special_instructions?: string;
   delivery_instructions?: string;
@@ -331,11 +333,24 @@ export default function DriverOrderDetailsScreen() {
     let successful = false;
 
     try {
-      await driverService.verifyDeliveryCode(id, code.trim());
+      const verifyRes: any = await driverService.verifyDeliveryCode(id, code.trim());
+      const completedOrder = verifyRes?.data ?? verifyRes;
       successful = true;
       setShowScanModal(false);
       await fetchOrderDetails();
-      Alert.alert('Success', 'Delivery verified successfully! Order completed.');
+      const orderTotal = Number(completedOrder?.total_amount ?? 0).toFixed(2);
+      const tipAmount = Number(completedOrder?.tip_amount ?? 0).toFixed(2);
+      const earned = Number(
+        completedOrder?.driver_earnings ??
+          ((Number(completedOrder?.delivery_fee || 0) > 0
+            ? Number(completedOrder?.delivery_fee || 0) * 0.7
+            : Number(completedOrder?.total_amount || 0) * 0.15) +
+            Number(completedOrder?.tip_amount || 0))
+      ).toFixed(2);
+      Alert.alert(
+        'Delivery Completed!',
+        `Order Price: R${orderTotal}\nCustomer Tip: R${tipAmount}\nYour Earnings: R${earned}`
+      );
     } catch (error: any) {
       const errorText =
         error.response?.data?.error ||
@@ -565,18 +580,67 @@ export default function DriverOrderDetailsScreen() {
                     <Text style={styles.itemNote}>Note: {item.special_instructions}</Text>
                   ) : null}
                 </View>
-                <Text style={styles.itemPrice}>R{Number(item.total_price ?? item.unit_price * item.quantity).toFixed(2)}</Text>
+                {order.status === 'delivered' && (
+                  <Text style={styles.itemPrice}>
+                    R{Number(item.total_price ?? Number(item.unit_price || 0) * item.quantity).toFixed(2)}
+                  </Text>
+                )}
               </View>
             );
           })}
           
           <View style={styles.divider} />
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>
-              {order.payment_status === 'completed' ? 'Total (Paid)' : 'Total'}
-            </Text>
-            <Text style={styles.totalValue}>R{Number(order.total_amount).toFixed(2)}</Text>
-          </View>
+          {order.status === 'delivered' ? (
+            <View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Subtotal</Text>
+                <Text style={styles.summaryValue}>R{Number(order.subtotal || 0).toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Delivery Fee</Text>
+                <Text style={styles.summaryValue}>R{Number(order.delivery_fee || 0).toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Tax</Text>
+                <Text style={styles.summaryValue}>R{Number(order.tax_amount || 0).toFixed(2)}</Text>
+              </View>
+              <View style={[styles.totalRow, { marginTop: 6 }]}>
+                <Text style={styles.totalLabel}>
+                  {order.payment_status === 'completed' ? 'Order Price (Paid)' : 'Order Price'}
+                </Text>
+                <Text style={styles.totalValue}>R{Number(order.total_amount || 0).toFixed(2)}</Text>
+              </View>
+
+              <View style={styles.payoutCard}>
+                <Text style={styles.payoutCardTitle}>Your Completed Payout</Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Customer Tip</Text>
+                  <Text style={[styles.summaryValue, { color: colors.success, fontWeight: '700' }]}>
+                    +R{Number(order.tip_amount || 0).toFixed(2)}
+                  </Text>
+                </View>
+                <View style={[styles.totalRow, { marginTop: 4 }]}>
+                  <Text style={styles.payoutTotalLabel}>Total Earned</Text>
+                  <Text style={styles.payoutTotalValue}>
+                    R{Number(
+                      order.driver_earnings ??
+                        ((Number(order.delivery_fee || 0) > 0
+                          ? Number(order.delivery_fee || 0) * 0.7
+                          : Number(order.total_amount || 0) * 0.15) +
+                          Number(order.tip_amount || 0))
+                    ).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.hiddenBreakdownBox}>
+              <Ionicons name="lock-closed" size={18} color={colors.textSecondary} />
+              <Text style={styles.hiddenBreakdownText}>
+                Order price, customer tip, and delivery payout will be shown once you complete this delivery.
+              </Text>
+            </View>
+          )}
         </View>
 
       </ScrollView>
@@ -1000,5 +1064,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  summaryLabel: {
+    fontSize: 13.5,
+    color: colors.textSecondary,
+  },
+  summaryValue: {
+    fontSize: 13.5,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  payoutCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  payoutCardTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#065F46',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  payoutTotalLabel: {
+    fontSize: 15.5,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  payoutTotalValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  hiddenBreakdownBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.gray50,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  hiddenBreakdownText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    fontWeight: '500',
   },
 });

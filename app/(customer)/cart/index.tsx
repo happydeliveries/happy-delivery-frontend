@@ -16,18 +16,16 @@ import { useCartStore } from '../../../store/cartStore';
 
 export default function CartScreen() {
   const router = useRouter();
-  const { items, total, clearCart, removeItem, updateQuantity, restaurantName } = useCartStore();
+  const { items, total, clearCart, removeItem, updateQuantity, restaurantId, restaurantName } = useCartStore();
 
   const handleCheckout = () => {
     if (items.length === 0) return;
-    // Navigate to checkout screen (to be implemented)
     router.push('/(customer)/checkout');
   };
 
   const handleGoToRestaurant = () => {
-    if (items.length > 0) {
-      // Navigate back to the restaurant
-      router.back();
+    if (items.length > 0 && restaurantId) {
+      router.push(`/(customer)/home/restaurant-details?id=${restaurantId}`);
     } else {
       router.push('/(customer)/home');
     }

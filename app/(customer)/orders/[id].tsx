@@ -11,6 +11,8 @@ import {
   TextInput,
   Linking,
   AppState,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -19,6 +21,7 @@ import Button from '../../../components/common/Button';
 import { colors } from '../../../constants/colors';
 import { orderService } from '../../../services/order';
 import { useSocket } from '../../../hooks/useSocket';
+import { useCartStore } from '../../../store/cartStore';
 
 type Order = {
   id: string;
@@ -26,6 +29,7 @@ type Order = {
   status: string;
   payment_status?: string;
   payment_method?: string;
+  restaurant_id?: string;
   subtotal: number;
   delivery_fee: number;
   tax_amount: number;
@@ -44,7 +48,10 @@ type Order = {
   driver_vehicle?: string;
   items: Array<{
     id: string;
+    menu_item_id?: string;
     item_name: string;
+    item_description?: string;
+    item_image?: string;
     quantity: number;
     unit_price: number;
     total_price: number;
@@ -56,6 +63,11 @@ type Order = {
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const socket = useSocket();
+  const {
+    clearCart,
+    addItem,
+    setRestaurant: setCartRestaurant,
+  } = useCartStore();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
@@ -75,6 +87,8 @@ export default function OrderDetailsScreen() {
   const [selectedBank, setSelectedBank] = useState('Capitec Bank');
   const [verifyingPaystack, setVerifyingPaystack] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState('Ordered by mistake');
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [restaurantRating, setRestaurantRating] = useState(5);
   const [driverRating, setDriverRating] = useState(5);
@@ -110,14 +124,19 @@ export default function OrderDetailsScreen() {
 
   useEffect(() => {
     if (!socket || !id) return;
-    socket.emit('join_order', id);
+    const joinOrderRoom = () => {
+      socket.emit('join_order', id);
+    };
+    joinOrderRoom();
 
     const handleOrderUpdate = () => {
       fetchOrderDetails();
     };
 
+    socket.on('connect', joinOrderRoom);
     socket.on('order_update', handleOrderUpdate);
     return () => {
+      socket.off('connect', joinOrderRoom);
       socket.off('order_update', handleOrderUpdate);
     };
   }, [socket, id]);
@@ -219,37 +238,68 @@ export default function OrderDetailsScreen() {
 
   const handleCancelOrder = () => {
     if (!order) return;
-    Alert.alert(
-      'Cancel Order',
-      order.payment_status === 'completed'
-        ? 'Are you sure you want to cancel this order? Your completed payment will be refunded automatically.'
-        : 'Are you sure you want to cancel this order?',
-      [
-        { text: 'Keep Order', style: 'cancel' },
-        {
-          text: 'Yes, Cancel Order',
-          style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            try {
-              await orderService.cancelOrder(order.id, 'Cancelled by customer');
-              await fetchOrderDetails();
-              Alert.alert(
-                'Order Cancelled',
-                order.payment_status === 'completed'
-                  ? 'Your order has been cancelled and a refund has been initiated.'
-                  : 'Your order has been cancelled.'
-              );
-            } catch (err: any) {
-              const msg = err?.response?.data?.error || err?.message || 'Failed to cancel order';
-              Alert.alert('Cancellation Failed', msg);
-            } finally {
-              setCancelling(false);
-            }
-          },
-        },
-      ]
-    );
+    setCancelReason('Ordered by mistake');
+    setCancelModalVisible(true);
+  };
+
+  const handleConfirmCancelOrder = async () => {
+    if (!order) return;
+    const wasPaid = order.payment_status === 'completed';
+    setCancelling(true);
+    try {
+      await orderService.cancelOrder(
+        order.id,
+        cancelReason.trim() || 'Cancelled by customer'
+      );
+      setCancelModalVisible(false);
+      await fetchOrderDetails();
+      Alert.alert(
+        'Order Cancelled',
+        wasPaid
+          ? 'Your order has been cancelled and a refund has been initiated.'
+          : 'Your order has been cancelled.'
+      );
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to cancel order';
+      Alert.alert('Cancellation Failed', msg);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleReorder = () => {
+    if (!order) return;
+    const restId = order.restaurant_id;
+    const validItems = (order.items || []).filter((it) => Boolean(it.menu_item_id));
+
+    if (!restId) {
+      router.push('/(customer)/home');
+      return;
+    }
+
+    if (validItems.length === 0) {
+      router.push(`/(customer)/home/restaurant-details?id=${restId}`);
+      return;
+    }
+
+    clearCart();
+    setCartRestaurant(restId, order.restaurant_name || 'Restaurant');
+    validItems.forEach((it) => {
+      addItem({
+        restaurantId: restId,
+        restaurantName: order.restaurant_name || 'Restaurant',
+        menuItemId: it.menu_item_id as string,
+        name: it.item_name,
+        description: it.item_description || '',
+        price: Number(it.unit_price || 0),
+        quantity: Math.max(1, Number(it.quantity || 1)),
+        imageUrl: it.item_image,
+        specialInstructions: it.special_instructions,
+        selectedOptions: it.selected_options || {},
+      });
+    });
+
+    router.push('/(customer)/cart');
   };
 
   const handleSubmitRating = async () => {
@@ -615,7 +665,11 @@ export default function OrderDetailsScreen() {
               <Text style={styles.detailValue}>{order.restaurant_name}</Text>
               <Text style={styles.detailSubtext}>{order.restaurant_address}</Text>
               {order.restaurant_phone && (
-                <Text style={styles.detailSubtext}>{order.restaurant_phone}</Text>
+                <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.restaurant_phone}`)}>
+                  <Text style={[styles.detailSubtext, { color: colors.primary, fontWeight: '600' }]}>
+                    {order.restaurant_phone}
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -629,7 +683,11 @@ export default function OrderDetailsScreen() {
                   {order.driver_first_name} {order.driver_last_name}
                 </Text>
                 {order.driver_phone && (
-                  <Text style={styles.detailSubtext}>{order.driver_phone}</Text>
+                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.driver_phone}`)}>
+                    <Text style={[styles.detailSubtext, { color: colors.primary, fontWeight: '600' }]}>
+                      {order.driver_phone}
+                    </Text>
+                  </TouchableOpacity>
                 )}
                 {order.driver_vehicle && (
                   <Text style={styles.detailSubtext}>{order.driver_vehicle}</Text>
@@ -707,7 +765,7 @@ export default function OrderDetailsScreen() {
           </View>
         )}
 
-        {['pending', 'ordering_at_restaurant', 'order_ready', 'accepted_by_driver'].includes(order.status) && (
+        {!order.delivered_at && ['pending', 'ordering_at_restaurant', 'order_ready', 'accepted_by_driver'].includes(order.status) && (
           <View style={styles.actionButtons}>
             <Button
               title={cancelling ? 'Cancelling...' : 'Cancel Order'}
@@ -719,37 +777,119 @@ export default function OrderDetailsScreen() {
           </View>
         )}
 
-        {order.status === 'delivered' && (
+        {['delivered', 'cancelled', 'no_drivers_available'].includes(order.status) && (
           <View style={styles.actionButtons}>
             <Button
               title="Reorder"
-              onPress={() => {
-                if ((order as any).restaurant_id) {
-                  router.push(`/(customer)/restaurants/${(order as any).restaurant_id}`);
-                } else {
-                  router.push('/(customer)/home');
-                }
-              }}
+              onPress={handleReorder}
               variant="primary"
               style={styles.actionButton}
             />
-            <Button
-              title={(order as any).restaurant_rating ? `Rated ★ ${(order as any).restaurant_rating}/5` : 'Rate Order'}
-              onPress={() => {
-                if ((order as any).restaurant_rating) {
-                  setRestaurantRating(Number((order as any).restaurant_rating) || 5);
-                }
-                if ((order as any).driver_rating) {
-                  setDriverRating(Number((order as any).driver_rating) || 5);
-                }
-                setRatingModalVisible(true);
-              }}
-              variant="outline"
-              style={styles.actionButton}
-            />
+            {order.status === 'delivered' && (
+              <Button
+                title={(order as any).restaurant_rating ? `Rated ★ ${(order as any).restaurant_rating}/5` : 'Rate Order'}
+                onPress={() => {
+                  if ((order as any).restaurant_rating) {
+                    setRestaurantRating(Number((order as any).restaurant_rating) || 5);
+                  }
+                  if ((order as any).driver_rating) {
+                    setDriverRating(Number((order as any).driver_rating) || 5);
+                  }
+                  setRatingModalVisible(true);
+                }}
+                variant="outline"
+                style={styles.actionButton}
+              />
+            )}
           </View>
         )}
       </ScrollView>
+
+      {/* Cancel Order Modal */}
+      <Modal
+        visible={cancelModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCancelModalVisible(false)}
+      >
+        <View style={styles.psModalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ width: '100%', alignItems: 'center' }}
+          >
+            <View style={[styles.psModalCard, { padding: 20 }]}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: colors.textPrimary, marginBottom: 6 }}>
+                Cancel Order
+              </Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 14 }}>
+                {order.payment_status === 'completed'
+                  ? 'Your completed Paystack payment will be refunded automatically once cancelled.'
+                  : 'Please choose or enter a reason for cancelling this order.'}
+              </Text>
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                {[
+                  'Ordered by mistake',
+                  'Taking too long',
+                  'Wrong delivery address',
+                  'Want to change items',
+                ].map((preset) => {
+                  const active = cancelReason === preset;
+                  return (
+                    <TouchableOpacity
+                      key={preset}
+                      onPress={() => setCancelReason(preset)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: active ? colors.primary : '#E2E8F0',
+                        backgroundColor: active ? `${colors.primary}15` : '#F8FAFC',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: active ? '700' : '500',
+                          color: active ? colors.primary : colors.textSecondary,
+                        }}
+                      >
+                        {preset}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                style={[styles.psInput, { marginBottom: 16 }]}
+                placeholder="Additional details (optional)"
+                value={cancelReason}
+                onChangeText={setCancelReason}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    title="Keep Order"
+                    onPress={() => setCancelModalVisible(false)}
+                    variant="outline"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    title={cancelling ? 'Cancelling...' : 'Confirm Cancel'}
+                    onPress={handleConfirmCancelOrder}
+                    loading={cancelling}
+                    variant="primary"
+                  />
+                </View>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       {/* Rate Order Modal */}
       <Modal
@@ -825,7 +965,10 @@ export default function OrderDetailsScreen() {
         animationType="slide"
         onRequestClose={() => setPaystackModalVisible(false)}
       >
-        <View style={styles.psModalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.psModalOverlay}
+        >
           <View style={styles.psModalCard}>
             {/* Paystack Header */}
             <View style={styles.psModalHeader}>
@@ -971,7 +1114,7 @@ export default function OrderDetailsScreen() {
               <Text style={styles.psFooterText}>Secured by Paystack</Text>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

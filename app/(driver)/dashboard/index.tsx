@@ -28,10 +28,11 @@ type DriverStats = {
 type AvailableOrder = {
   id: string;
   order_number: string;
+  status?: string;
   restaurant_name: string;
   restaurant_address: string;
   customer_address: string;
-  total_amount: number;
+  total_amount?: number | null;
   distance_to_restaurant: number;
   time_left_seconds: number;
 };
@@ -294,7 +295,14 @@ export default function DriverDashboardScreen() {
                   </View>
                   
                   <View style={styles.orderFooter}>
-                    <Text style={styles.orderAmount}>R{Number(order.total_amount).toFixed(2)}</Text>
+                    {order.status === 'delivered' && order.total_amount != null ? (
+                      <Text style={styles.orderAmount}>R{Number(order.total_amount).toFixed(2)}</Text>
+                    ) : (
+                      <View style={styles.hiddenPriceBadge}>
+                        <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
+                        <Text style={styles.hiddenPriceText}>Price & tip shown on completion</Text>
+                      </View>
+                    )}
                     <Button
                       title="Accept"
                       onPress={() => handleAcceptOrder(order.id)}
@@ -543,6 +551,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: colors.primary,
+  },
+  hiddenPriceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.gray100,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  hiddenPriceText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   acceptButton: {
     paddingHorizontal: 24,

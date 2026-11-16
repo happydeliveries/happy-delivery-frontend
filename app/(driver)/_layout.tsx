@@ -59,7 +59,7 @@ export default function DriverLayout() {
           title: 'Dashboard',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'speedometer' : 'speedometer-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'speedometer' : 'speedometer-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -71,7 +71,7 @@ export default function DriverLayout() {
           title: 'Orders',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <MaterialIcons name={focused ? 'delivery-dining' : 'delivery-dining'} size={size} color={color} />
+              <MaterialIcons name={focused ? 'delivery-dining' : 'delivery-dining'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}
@@ -95,7 +95,7 @@ export default function DriverLayout() {
           title: 'Profile',
           tabBarIcon: ({ color, size, focused }) => (
             <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={color} />
+              <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={(color ?? colors.primary) as string} />
             </View>
           ),
         }}

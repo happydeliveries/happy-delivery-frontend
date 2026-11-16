@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,13 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import OrderCard from '../../../components/customer/OrderCard';
 import { colors } from '../../../constants/colors';
 import { orderService } from '../../../services/order';
 import { useAuth } from '../../../hooks/useAuth';
+import { useSocket } from '../../../hooks/useSocket';
 
 type Order = {
   id: string;
@@ -30,20 +31,21 @@ type Order = {
 export default function OrdersScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const socket = useSocket();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('all');
 
-  useEffect(() => {
-    if (user) {
-      fetchOrders();
+  const fetchOrders = useCallback(async (silent = false) => {
+    if (!user) {
+      setOrders([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
     }
-  }, [user]);
-
-  const fetchOrders = async () => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await orderService.getMyOrders();
       // API interceptor returns response.data directly; shape may be array or {orders:[...]}
       const orderList: Order[] = Array.isArray(response)
@@ -56,7 +58,30 @@ export default function OrdersScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        fetchOrders(orders.length > 0);
+      } else {
+        setLoading(false);
+      }
+    }, [user, fetchOrders, orders.length])
+  );
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleUpdate = () => fetchOrders(true);
+    socket.on('order_update', handleUpdate);
+    return () => {
+      socket.off('order_update', handleUpdate);
+    };
+  }, [socket, fetchOrders]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -106,24 +131,38 @@ export default function OrdersScreen() {
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
       <Ionicons name="receipt-outline" size={80} color={colors.gray300} />
-      <Text style={styles.emptyTitle}>No orders yet</Text>
+      <Text style={styles.emptyTitle}>
+        {!user ? 'Sign in to see your orders' : 'No orders yet'}
+      </Text>
       <Text style={styles.emptySubtitle}>
-        Your order history will appear here
+        {!user
+          ? 'Track deliveries, pay for orders, and reorder your favorites'
+          : selectedFilter === 'all'
+            ? 'Your order history will appear here'
+            : `No ${selectedFilter} orders found`}
       </Text>
       <TouchableOpacity 
         style={styles.browseButton}
-        onPress={() => router.push('/(customer)/home')}
+        onPress={() => router.push(!user ? '/(auth)/login' : '/(customer)/home')}
       >
-        <Text style={styles.browseButtonText}>Browse Restaurants</Text>
+        <Text style={styles.browseButtonText}>
+          {!user ? 'Sign In' : 'Browse Restaurants'}
+        </Text>
       </TouchableOpacity>
     </View>
   );
+
+  const cycleFilter = () => {
+    const idx = filters.findIndex(f => f.key === selectedFilter);
+    const next = filters[(idx + 1) % filters.length];
+    setSelectedFilter(next.key);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Orders</Text>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={cycleFilter} accessibilityLabel="Cycle order status filter">
           <Ionicons name="filter" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>

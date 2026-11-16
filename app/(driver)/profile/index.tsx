@@ -92,7 +92,21 @@ export default function DriverProfileScreen() {
     );
   };
 
-  const menuSections = [
+  type DriverMenuItem = {
+    label: string;
+    icon: string;
+    action: () => void;
+    switch?: React.ReactNode;
+    value?: string;
+  };
+
+  type DriverMenuSection = {
+    title: string;
+    icon: string;
+    items: DriverMenuItem[];
+  };
+
+  const menuSections: DriverMenuSection[] = [
     {
       title: 'Account',
       icon: 'person-outline',
