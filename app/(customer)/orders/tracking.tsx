@@ -10,16 +10,17 @@ import {
   Platform,
   LayoutAnimation,
   UIManager,
+  AppState,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors } from '../../../constants/colors';
 import { orderService } from '../../../services/order';
-import { useSocket } from '../../../hooks/useSocket';
+import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -110,6 +111,7 @@ export default function TrackingScreen() {
   const hasInitialFit = useRef(false);
 
   const socket = useSocket();
+  const isSocketConnected = useSocketStatus();
 
   const [order, setOrder] = useState<any>(null);
   const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
@@ -122,6 +124,7 @@ export default function TrackingScreen() {
 
   const [loading, setLoading] = useState(true);
   const [showQR, setShowQR] = useState(false);
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
 
   // Get customer's real GPS location if permission is available
   useEffect(() => {
@@ -201,86 +204,111 @@ export default function TrackingScreen() {
     [id]
   );
 
-  // Live Socket Listeners + 4-second polling fallback
+  useFocusEffect(
+    useCallback(() => {
+      setIsScreenFocused(true);
+      fetchOrderData(false);
+      return () => setIsScreenFocused(false);
+    }, [fetchOrderData])
+  );
+
+  // Live Socket.IO streaming (replaces unconditional 4s polling)
   useEffect(() => {
-    fetchOrderData(false);
+    if (!socket || !id) return;
 
-    const pollInterval = setInterval(() => {
+    const joinOrderRoom = () => {
+      socket.emit('join_order', id);
       fetchOrderData(true);
-    }, 4000);
+    };
+    socket.emit('join_order', id);
 
-    if (socket && id) {
-      const joinOrderRoom = () => {
-        socket.emit('join_order', id);
-      };
-      joinOrderRoom();
+    const handleDriverLocation = (data: any) => {
+      const coords = parseCoordinates(data?.location || data);
+      if (coords) {
+        setDriverLocation(coords);
+        setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
+    };
 
-      const handleDriverLocation = (data: any) => {
-        const coords = parseCoordinates(data?.location || data);
-        if (coords) {
-          setDriverLocation(coords);
-          setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        }
-      };
+    const handleOrderUpdate = (data: any) => {
+      const eventOrderId = String(data?.orderId || data?.order_id || data?.order?.id || id);
+      if (eventOrderId !== String(id)) return;
 
-      const handleOrderUpdate = (data: any) => {
-        const nextStatus = data?.status || data?.new_status || data?.order?.status;
-        const nextDriverLoc = parseCoordinates(data?.driver_location || data?.order?.driver_location);
-        if (nextDriverLoc) {
-          setDriverLocation(nextDriverLoc);
-          setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        }
-        if (nextStatus) {
-          setOrder((prev: any) =>
-            prev
-              ? {
-                  ...prev,
-                  ...(data?.order || {}),
-                  verification_code: data?.order?.verification_code || prev.verification_code,
-                  status: nextStatus,
-                }
-              : data?.order || prev
-          );
-          if (['picked_up', 'on_the_way', 'arrived'].includes(nextStatus)) {
-            fetchOrderData(true);
-          }
-        } else {
+      const nextStatus = data?.status || data?.new_status || data?.order?.status;
+      const nextDriverLoc = parseCoordinates(data?.driver_location || data?.order?.driver_location);
+      if (nextDriverLoc) {
+        setDriverLocation(nextDriverLoc);
+        setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
+      if (nextStatus) {
+        setOrder((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                ...(data?.order || {}),
+                verification_code: data?.order?.verification_code || prev.verification_code,
+                code_expires_at: data?.order?.code_expires_at || prev.code_expires_at,
+                status: nextStatus,
+              }
+            : data?.order || prev
+        );
+        if (['accepted_by_driver', 'picked_up'].includes(nextStatus)) {
           fetchOrderData(true);
         }
-      };
+      } else {
+        fetchOrderData(true);
+      }
+    };
 
-      const handleVerificationCode = (payload: any) => {
-        if (payload?.order_id === id && payload?.verification_code) {
-          setOrder((prev: any) =>
-            prev
-              ? {
-                  ...prev,
-                  verification_code: payload.verification_code,
-                  code_expires_at: payload.code_expires_at || prev.code_expires_at,
-                }
-              : prev
-          );
-        }
-      };
+    const handleVerificationCode = (payload: any) => {
+      if (payload?.order_id === id && payload?.verification_code) {
+        setOrder((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                verification_code: payload.verification_code,
+                code_expires_at: payload.code_expires_at || prev.code_expires_at,
+              }
+            : prev
+        );
+      }
+    };
 
-      socket.on('connect', joinOrderRoom);
-      socket.on('driver_location', handleDriverLocation);
-      socket.on('order_update', handleOrderUpdate);
-      socket.on('verification_code_generated', handleVerificationCode);
-
-      return () => {
-        clearInterval(pollInterval);
-        socket.off('connect', joinOrderRoom);
-        socket.off('driver_location', handleDriverLocation);
-        socket.off('order_update', handleOrderUpdate);
-        socket.off('verification_code_generated', handleVerificationCode);
-      };
-    }
+    socket.on('connect', joinOrderRoom);
+    socket.on('driver_location', handleDriverLocation);
+    socket.on('order_update', handleOrderUpdate);
+    socket.on('verification_code_generated', handleVerificationCode);
 
     return () => {
-      clearInterval(pollInterval);
+      socket.off('connect', joinOrderRoom);
+      socket.off('driver_location', handleDriverLocation);
+      socket.off('order_update', handleOrderUpdate);
+      socket.off('verification_code_generated', handleVerificationCode);
     };
   }, [id, socket, fetchOrderData]);
+
+  const isTerminalTracking = Boolean(
+    order?.status && ['delivered', 'cancelled', 'no_drivers_available'].includes(order.status)
+  );
+
+  // Conditional fallback poll ONLY when focused, active, and Socket.IO is disconnected
+  useEffect(() => {
+    if (!isScreenFocused || isTerminalTracking || isSocketConnected) return;
+    const fallbackInterval = setInterval(() => {
+      fetchOrderData(true);
+    }, 15000);
+    return () => clearInterval(fallbackInterval);
+  }, [isScreenFocused, isTerminalTracking, isSocketConnected, fetchOrderData]);
+
+  // Refresh once when returning to foreground on an active order
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && !isTerminalTracking) {
+        fetchOrderData(true);
+      }
+    });
+    return () => sub.remove();
+  }, [isTerminalTracking, fetchOrderData]);
 
   // Fit map to show Driver, Restaurant (when picked_up/accepted), and Customer
   const fitMapToRoute = useCallback(() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { colors } from '../../../constants/colors';
 import { driverService } from '../../../services/driver';
 import { useAuth } from '../../../hooks/useAuth';
+import { useSocket } from '../../../hooks/useSocket';
+import { useDriverAlertStore } from '../../../store/driverAlertStore';
 
 // FIX: Update type to reflect that address can be an object
 type AddressObject = {
@@ -43,6 +45,8 @@ type DriverOrder = {
 export default function DriverOrdersScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const socket = useSocket();
+  const { syncAvailableOrders, removeOrderAlert } = useDriverAlertStore();
   
   const [activeTab, setActiveTab] = useState<'requests' | 'active' | 'history'>('requests');
   const [availableOrders, setAvailableOrders] = useState<DriverOrder[]>([]);
@@ -50,38 +54,67 @@ export default function DriverOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (user) {
-        fetchAllData();
-      }
-    }, [user, activeTab])
-  );
-
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
-      const availableData = await driverService.getAvailableOrders();
-      setAvailableOrders(Array.isArray(availableData.data) ? availableData.data : []);
-
-      const myOrdersData = await driverService.getMyOrders();
+      if (!silent) setLoading(true);
+      const [availableData, myOrdersData] = await Promise.all([
+        driverService.getAvailableOrders(),
+        driverService.getMyOrders(),
+      ]);
+      const nextAvailable = Array.isArray(availableData.data) ? availableData.data : [];
+      setAvailableOrders(nextAvailable);
+      syncAvailableOrders(nextAvailable);
       setMyOrders(Array.isArray(myOrdersData.data) ? myOrdersData.data : []);
+      hasLoadedRef.current = true;
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [syncAvailableOrders]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        fetchAllData(hasLoadedRef.current);
+      }
+    }, [user?.id, fetchAllData])
+  );
+
+  // Real-time Socket.IO listener for driver order requests & status updates
+  useEffect(() => {
+    if (!socket || !user) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        fetchAllData(true);
+      }, 250);
+    };
+
+    socket.on('new_order', scheduleRefresh);
+    socket.on('order_unavailable', scheduleRefresh);
+    socket.on('order_update', scheduleRefresh);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      socket.off('new_order', scheduleRefresh);
+      socket.off('order_unavailable', scheduleRefresh);
+      socket.off('order_update', scheduleRefresh);
+    };
+  }, [socket, user?.id, fetchAllData]);
 
   const handleAcceptOrder = async (orderId: string) => {
     setAcceptingId(orderId);
     try {
       await driverService.acceptOrder(orderId);
+      removeOrderAlert(orderId, true);
       Alert.alert('Success', 'Order accepted! Head to the restaurant.');
       setActiveTab('active');
-      fetchAllData();
+      fetchAllData(true);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.error || 'Could not accept order.');
     } finally {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
 import { colors } from '../../../constants/colors';
 import { driverService } from '../../../services/driver';
 import { useAuth } from '../../../hooks/useAuth';
+import { useSocket } from '../../../hooks/useSocket';
+import { useDriverAlertStore } from '../../../store/driverAlertStore';
 
 type DriverStats = {
   totalDeliveries: number;
@@ -23,6 +25,7 @@ type DriverStats = {
   todayEarnings: number;
   averageRating: number;
   acceptanceRate: number;
+  isAvailable?: boolean;
 };
 
 type AvailableOrder = {
@@ -40,101 +43,115 @@ type AvailableOrder = {
 export default function DriverDashboardScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  
-  const [isOnline, setIsOnline] = useState(false);
+  const socket = useSocket();
+  const {
+    isOnline,
+    setOnlineStatus,
+    syncAvailableOrders,
+    removeOrderAlert,
+  } = useDriverAlertStore();
+
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    }
-  }, [user]);
-
-  // const fetchDashboardData = async () => {
-  //   try {
-  //     setLoading(true);
-  //     const statsData = await driverService.getStats();
-  //     setStats(statsData);
-      
-  //     if (isOnline) {
-  //       const ordersData = await driverService.getAvailableOrders();
-  //       setAvailableOrders(ordersData);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error fetching dashboard data:', error);
-  //   } finally {
-  //     setLoading(false);
-  //     setRefreshing(false);
-  //   }
-  // };
-
-  const fetchDashboardData = async () => {
+  const fetchAvailableOrders = useCallback(async () => {
     try {
-      setLoading(true);
-      // 1. Handle Stats (Backend returns { success: true, data: stats })
-      const statsResponse = await driverService.getStats();
-      setStats(statsResponse?.data || statsResponse);
-      
-      if (isOnline) {
-        // 2. Handle Available Orders (Backend returns { success: true, data: orders })
-        const ordersResponse = await driverService.getAvailableOrders();
-        
-        // FIX: Extract the .data array
-        const ordersArray = ordersResponse?.data || (Array.isArray(ordersResponse) ? ordersResponse : []);
-        setAvailableOrders(ordersArray);
+      const ordersResponse = await driverService.getAvailableOrders();
+      const ordersArray =
+        ordersResponse?.data || (Array.isArray(ordersResponse) ? ordersResponse : []);
+      setAvailableOrders(ordersArray);
+      syncAvailableOrders(ordersArray);
+    } catch (error) {
+      console.error('Error fetching available orders:', error);
+      setAvailableOrders([]);
+    }
+  }, [syncAvailableOrders]);
+
+  const fetchDashboardData = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const statsResponse: any = await driverService.getStats();
+      const nextStats = statsResponse?.data || statsResponse;
+      setStats(nextStats);
+
+      const serverOnline =
+        typeof nextStats?.isAvailable === 'boolean'
+          ? nextStats.isAvailable
+          : useDriverAlertStore.getState().isOnline;
+      setOnlineStatus(serverOnline);
+
+      if (serverOnline) {
+        await fetchAvailableOrders();
+      } else {
+        setAvailableOrders([]);
       }
+      hasLoadedRef.current = true;
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      setAvailableOrders([]); // Safety fallback
+      setAvailableOrders([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [fetchAvailableOrders, setOnlineStatus]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        fetchDashboardData(hasLoadedRef.current);
+      }
+    }, [user?.id, fetchDashboardData])
+  );
+
+  // Real-time Socket.IO updates for available orders and dashboard metrics
+  useEffect(() => {
+    if (!socket || !user) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        fetchDashboardData(true);
+      }, 250);
+    };
+
+    socket.on('new_order', scheduleRefresh);
+    socket.on('order_unavailable', scheduleRefresh);
+    socket.on('order_update', scheduleRefresh);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      socket.off('new_order', scheduleRefresh);
+      socket.off('order_unavailable', scheduleRefresh);
+      socket.off('order_update', scheduleRefresh);
+    };
+  }, [socket, user?.id, fetchDashboardData]);
 
   const handleToggleOnline = async () => {
     const newStatus = !isOnline;
-    setIsOnline(newStatus);
-    
+    setOnlineStatus(newStatus);
+
     try {
       await driverService.updateStatus(newStatus ? 'available' : 'offline');
       if (newStatus) {
-        fetchAvailableOrders();
+        socket?.emit('join_driver_room');
+        await fetchAvailableOrders();
+      } else {
+        socket?.emit('leave_driver_room');
+        setAvailableOrders([]);
       }
     } catch (error) {
       console.error('Error updating status:', error);
-      setIsOnline(!newStatus); // Revert on error
-    }
-  };
-
-  // const fetchAvailableOrders = async () => {
-  //   try {
-  //     const ordersData = await driverService.getAvailableOrders();
-  //     setAvailableOrders(ordersData);
-  //   } catch (error) {
-  //     console.error('Error fetching available orders:', error);
-  //   }
-  // };
-
-  const fetchAvailableOrders = async () => {
-    try {
-      const ordersResponse = await driverService.getAvailableOrders();
-      
-      // FIX: Extract the .data array
-      const ordersArray = ordersResponse?.data || (Array.isArray(ordersResponse) ? ordersResponse : []);
-      setAvailableOrders(ordersArray);
-    } catch (error) {
-      console.error('Error fetching available orders:', error);
-      setAvailableOrders([]); // Safety fallback
+      setOnlineStatus(!newStatus); // Revert on error
     }
   };
 
   const handleAcceptOrder = async (orderId: string) => {
     try {
       await driverService.acceptOrder(orderId);
+      removeOrderAlert(orderId, true);
       router.push(`/(driver)/orders/${orderId}`);
     } catch (error) {
       console.error('Error accepting order:', error);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { useAuth } from './useAuth';
 import { SOCKET_URL } from '../constants/api';
+import { useDriverAlertStore } from '../store/driverAlertStore';
 
 // Singleton pattern ensures we only create ONE socket connection for the whole app
 let globalSocket: Socket | null = null;
@@ -42,11 +43,16 @@ export const useSocket = () => {
 
     const joinBaseRooms = () => {
       if (!activeSocket || !user) return;
+      activeSocket.emit('join', user.id);
       if (user.role === 'driver') {
-        activeSocket.emit('join_driver_room');
         activeSocket.emit('join_driver', user.id);
-      } else {
-        activeSocket.emit('join', user.id);
+        if (useDriverAlertStore.getState().isOnline) {
+          activeSocket.emit('join_driver_room');
+        } else {
+          activeSocket.emit('leave_driver_room');
+        }
+      } else if (user.role === 'restaurant_manager') {
+        activeSocket.emit('join_manager', user.id);
       }
     };
 
@@ -59,4 +65,29 @@ export const useSocket = () => {
   }, [user?.id, user?.role, token]);
 
   return socket || globalSocket;
+};
+
+export const useSocketStatus = (): boolean => {
+  const socket = useSocket();
+  const [connected, setConnected] = useState<boolean>(Boolean(socket?.connected));
+
+  useEffect(() => {
+    if (!socket) {
+      setConnected(false);
+      return;
+    }
+
+    setConnected(Boolean(socket.connected));
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
+
+  return connected;
 };

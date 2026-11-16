@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,14 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { colors } from '../../../constants/colors';
 import { managerService } from '../../../services/manager';
+import { useSocket } from '../../../hooks/useSocket';
 
 type DashboardStats = {
   totalRestaurants: number;
@@ -42,31 +44,28 @@ type RestaurantSummary = {
 
 export default function ManagerDashboardScreen() {
   const router = useRouter();
+  const socket = useSocket();
   
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [restaurants, setRestaurants] = useState<RestaurantSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
-      
-      // FIX: Safely extract the .data property from each response
-      const statsRes = await managerService.getDashboardStats();
+      if (!silent) setLoading(true);
+      const [statsRes, ordersRes, restaurantsRes] = await Promise.all([
+        managerService.getDashboardStats(),
+        managerService.getRecentOrders(5),
+        managerService.getRestaurantsSummary(),
+      ]);
+
       setStats(statsRes?.data || statsRes);
-      
-      const ordersRes = await managerService.getRecentOrders(5);
       setRecentOrders(ordersRes?.data || (Array.isArray(ordersRes) ? ordersRes : []));
-      
-      const restaurantsRes = await managerService.getRestaurantsSummary();
       setRestaurants(restaurantsRes?.data || (Array.isArray(restaurantsRes) ? restaurantsRes : []));
-      
+      hasLoadedRef.current = true;
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setRecentOrders([]);
@@ -75,11 +74,42 @@ export default function ManagerDashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboardData(hasLoadedRef.current);
+    }, [fetchDashboardData])
+  );
+
+  // Live Socket.IO updates for mobile manager dashboard
+  useEffect(() => {
+    if (!socket) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        fetchDashboardData(true);
+      }, 300);
+    };
+
+    socket.on('new_order', scheduleRefresh);
+    socket.on('order_updated', scheduleRefresh);
+    socket.on('driver_assigned', scheduleRefresh);
+    socket.on('order_expired', scheduleRefresh);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      socket.off('new_order', scheduleRefresh);
+      socket.off('order_updated', scheduleRefresh);
+      socket.off('driver_assigned', scheduleRefresh);
+      socket.off('order_expired', scheduleRefresh);
+    };
+  }, [socket, fetchDashboardData]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchDashboardData();
+    fetchDashboardData(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -369,9 +399,6 @@ export default function ManagerDashboardScreen() {
     </SafeAreaView>
   );
 }
-
-// Add RefreshControl import
-import { RefreshControl } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {

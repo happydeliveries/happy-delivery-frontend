@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,12 +15,12 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
 import { colors } from '../../../constants/colors';
 import { orderService } from '../../../services/order';
-import { useSocket } from '../../../hooks/useSocket';
+import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
 import { useCartStore } from '../../../store/cartStore';
 
 type Order = {
@@ -63,6 +63,7 @@ type Order = {
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const socket = useSocket();
+  const isSocketConnected = useSocketStatus();
   const {
     clearCart,
     addItem,
@@ -94,59 +95,18 @@ export default function OrderDetailsScreen() {
   const [driverRating, setDriverRating] = useState(5);
   const [submittingRating, setSubmittingRating] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true; 
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
 
-    const loadData = async () => {
-      try {
-        const data = await orderService.getOrder(id);
-        const resolvedOrder = (data as any)?.order ?? (data as any)?.data ?? data;
-        if (isMounted && resolvedOrder) {
-          setOrder(resolvedOrder);
-          if (resolvedOrder.payment_method) {
-            setSelectedPaymentMethod(resolvedOrder.payment_method);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching order:', error);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-    
-    loadData();
-    const intervalId = setInterval(loadData, 5000);
-    return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-    };
-  }, [id]);
-
-  useEffect(() => {
-    if (!socket || !id) return;
-    const joinOrderRoom = () => {
-      socket.emit('join_order', id);
-    };
-    joinOrderRoom();
-
-    const handleOrderUpdate = () => {
-      fetchOrderDetails();
-    };
-
-    socket.on('connect', joinOrderRoom);
-    socket.on('order_update', handleOrderUpdate);
-    return () => {
-      socket.off('connect', joinOrderRoom);
-      socket.off('order_update', handleOrderUpdate);
-    };
-  }, [socket, id]);
-
-  const fetchOrderDetails = async () => {
+  const fetchOrderDetails = useCallback(async () => {
+    if (!id) return;
     try {
       const data = await orderService.getOrder(id);
       const resolvedOrder = (data as any)?.order ?? (data as any)?.data ?? data;
       if (resolvedOrder) {
         setOrder(resolvedOrder);
+        if (resolvedOrder.payment_method) {
+          setSelectedPaymentMethod(resolvedOrder.payment_method);
+        }
         if (resolvedOrder.payment_status === 'completed' && paystackModalVisible) {
           setPaystackModalVisible(false);
         }
@@ -156,17 +116,66 @@ export default function OrderDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, paystackModalVisible]);
 
-  // Auto-check order payment status when returning from Paystack browser checkout
+  useFocusEffect(
+    useCallback(() => {
+      setIsScreenFocused(true);
+      fetchOrderDetails();
+      return () => setIsScreenFocused(false);
+    }, [fetchOrderDetails])
+  );
+
+  useEffect(() => {
+    if (!socket || !id) return;
+    const joinOrderRoom = () => {
+      socket.emit('join_order', id);
+      fetchOrderDetails();
+    };
+    socket.emit('join_order', id);
+
+    const handleOrderUpdate = (payload: any) => {
+      const targetOrderId = String(payload?.orderId || payload?.order?.id || id);
+      if (targetOrderId !== String(id)) return;
+      if (payload?.order && typeof payload.order === 'object') {
+        setOrder((prev) => (prev ? { ...prev, ...payload.order } : prev));
+        if (payload.order.payment_status === 'completed' && paystackModalVisible) {
+          setPaystackModalVisible(false);
+        }
+      }
+      fetchOrderDetails();
+    };
+
+    socket.on('connect', joinOrderRoom);
+    socket.on('order_update', handleOrderUpdate);
+    return () => {
+      socket.off('connect', joinOrderRoom);
+      socket.off('order_update', handleOrderUpdate);
+    };
+  }, [socket, id, fetchOrderDetails, paystackModalVisible]);
+
+  // Fallback poll ONLY while focused, non-terminal, and either socket is disconnected or hosted Paystack checkout is open
+  const isTerminalStatus = Boolean(
+    order?.status && ['delivered', 'cancelled', 'no_drivers_available'].includes(order.status)
+  );
+  const shouldFallbackPoll =
+    isScreenFocused && !isTerminalStatus && (!isSocketConnected || paystackModalVisible);
+
+  useEffect(() => {
+    if (!shouldFallbackPoll) return;
+    const intervalId = setInterval(fetchOrderDetails, paystackModalVisible ? 8000 : 20000);
+    return () => clearInterval(intervalId);
+  }, [shouldFallbackPoll, paystackModalVisible, fetchOrderDetails]);
+
+  // Re-sync order status when app returns to foreground
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && paystackSession?.reference) {
+      if (nextState === 'active' && !isTerminalStatus) {
         fetchOrderDetails();
       }
     });
     return () => sub.remove();
-  }, [paystackSession]);
+  }, [isTerminalStatus, fetchOrderDetails]);
 
   const handlePayNow = async () => {
     if (!order) return;

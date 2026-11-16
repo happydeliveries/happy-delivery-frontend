@@ -3,6 +3,8 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authService } from '../services/auth';
 import { router } from 'expo-router';
+import { releaseDriverOrderAlertResources } from '../services/driverAlertSound';
+import { useDriverAlertStore } from '../store/driverAlertStore';
 
 type User = {
   id: string;
@@ -149,6 +151,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const logout = async () => {
+    await releaseDriverOrderAlertResources();
+    useDriverAlertStore.getState().reset();
     await authService.logout();
     setToken(null);
     setUser(null);

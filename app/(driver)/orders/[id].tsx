@@ -23,6 +23,7 @@ import * as Location from 'expo-location';
 import { colors } from '../../../constants/colors';
 import { driverService } from '../../../services/driver';
 import { useSocket } from '../../../hooks/useSocket';
+import { useDriverAlertStore } from '../../../store/driverAlertStore';
 
 type OrderItem = {
   id: string;
@@ -84,6 +85,7 @@ export default function DriverOrderDetailsScreen() {
   
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const lastRestPersistRef = useRef<number>(0);
+  const lastSocketLocationRef = useRef<number>(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // --- 1. Fetch Data ---
@@ -98,6 +100,9 @@ export default function DriverOrderDetailsScreen() {
     const handleOrderUpdate = (payload: any) => {
       const nextStatus = payload?.status || payload?.new_status || payload?.order?.status;
       if (nextStatus) {
+        if (['accepted_by_driver', 'cancelled', 'no_drivers_available', 'delivered'].includes(nextStatus)) {
+          useDriverAlertStore.getState().removeOrderAlert(id);
+        }
         fetchOrderDetails();
       }
     };
@@ -157,7 +162,10 @@ export default function DriverOrderDetailsScreen() {
     speed?: number | null,
     forceRest = false
   ) => {
-    if (socket && order) {
+    const now = Date.now();
+    lastSocketLocationRef.current = now;
+
+    if (socket?.connected && order) {
       socket.emit('driver_location_update', {
         driverId: order.driver_id,
         orderId: id,
@@ -167,8 +175,10 @@ export default function DriverOrderDetailsScreen() {
         accuracy: accuracy ?? null,
         speed: speed ?? null,
       });
+      if (!forceRest) return;
     }
-    const now = Date.now();
+
+    // Only hit REST PUT /drivers/location when socket is disconnected or explicitly forced
     if (forceRest || now - lastRestPersistRef.current >= 15000) {
       lastRestPersistRef.current = now;
       driverService
@@ -177,10 +187,10 @@ export default function DriverOrderDetailsScreen() {
     }
   };
 
-  // --- 2. Live GPS Socket + REST Broadcaster ---
+  // --- 2. Live GPS Socket Stream (REST only when socket is disconnected) ---
   useEffect(() => {
     let isMounted = true;
-    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let staleWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
     const startTracking = async () => {
       const activeStatuses = ['accepted_by_driver', 'order_ready', 'picked_up', 'on_the_way', 'arrived'];
@@ -203,7 +213,7 @@ export default function DriverOrderDetailsScreen() {
         // Still broadcast fallback restaurant location when picked_up so customer map works on emulators without GPS
         const fallback = await getCurrentDriverCoords();
         if (fallback && isMounted) {
-          broadcastDriverPosition(fallback.lat, fallback.lng);
+          broadcastDriverPosition(fallback.lat, fallback.lng, null, null, !socket?.connected);
         }
         return;
       }
@@ -218,7 +228,7 @@ export default function DriverOrderDetailsScreen() {
         ])
       ).start();
 
-      // Send an immediate GPS ping as soon as tracking starts or status transitions to picked_up
+      // Send an immediate GPS ping as soon as tracking starts
       const initialCoords = await getCurrentDriverCoords();
       if (initialCoords && isMounted) {
         broadcastDriverPosition(initialCoords.lat, initialCoords.lng);
@@ -227,8 +237,8 @@ export default function DriverOrderDetailsScreen() {
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 3000,     // Ping every 3 seconds
-          distanceInterval: 0,    // Always emit even for small movements so live map stays responsive
+          timeInterval: 4000,     // Stream every 4 seconds when moving
+          distanceInterval: 10,   // Avoid redundant socket emissions when stationary
         },
         (location) => {
           if (isMounted) {
@@ -242,14 +252,15 @@ export default function DriverOrderDetailsScreen() {
         }
       );
 
-      // Periodic heartbeat fallback every 5 seconds in case watchPositionAsync pauses on stationary emulator
-      heartbeatTimer = setInterval(async () => {
+      // Stationary/emulator watchdog: only check every 15s if watchPositionAsync hasn't fired recently
+      staleWatchdogTimer = setInterval(async () => {
         if (!isMounted) return;
+        if (Date.now() - lastSocketLocationRef.current < 12000) return;
         const coords = await getCurrentDriverCoords();
         if (coords && isMounted) {
           broadcastDriverPosition(coords.lat, coords.lng);
         }
-      }, 5000);
+      }, 15000);
     };
 
     const stopTracking = () => {
@@ -257,9 +268,9 @@ export default function DriverOrderDetailsScreen() {
         locationSubscription.current.remove();
         locationSubscription.current = null;
       }
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
+      if (staleWatchdogTimer) {
+        clearInterval(staleWatchdogTimer);
+        staleWatchdogTimer = null;
       }
       setIsLiveTracking(false);
       pulseAnim.setValue(1);
@@ -280,6 +291,7 @@ export default function DriverOrderDetailsScreen() {
     setUpdating(true);
     try {
       await driverService.acceptOrder(id);
+      useDriverAlertStore.getState().removeOrderAlert(id, true);
       const coords = await getCurrentDriverCoords();
       if (coords) {
         broadcastDriverPosition(coords.lat, coords.lng);
