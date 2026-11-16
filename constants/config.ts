@@ -22,8 +22,8 @@ export const APP_CONFIG = {
     MIN_ORDER_AMOUNT: 5.0, // Minimum order amount
     MAX_ORDER_AMOUNT: 500.0, // Maximum order amount
     TAX_RATE: 0.08, // 8% tax
-    DEFAULT_DELIVERY_FEE: 3.99,
-    FREE_DELIVERY_THRESHOLD: 25.0,
+    DEFAULT_DELIVERY_FEE: 20.0, // Base radial delivery fee (R20–R25 for 0–5km, R25–R40 for 5–10km, R45–R50 for 10+km)
+    FREE_DELIVERY_THRESHOLD: Number.POSITIVE_INFINITY,
     TIP_PERCENTAGES: [0, 10, 15, 20], // Tip percentage options
   },
   

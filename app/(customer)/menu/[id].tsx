@@ -51,6 +51,9 @@ type Restaurant = {
   average_rating?: number;
   total_ratings?: number;
   is_accepting_orders?: boolean;
+  is_open_now?: boolean;
+  opening_hours_display?: string;
+  closed_reason?: string;
 };
 
 const HEADER_HEIGHT = 60;
@@ -218,10 +221,10 @@ export default function MenuItemDetailScreen() {
       return;
     }
 
-    if (restaurant.is_accepting_orders === false) {
+    if (restaurant.is_accepting_orders === false || restaurant.is_open_now === false) {
       Alert.alert(
         'Restaurant Closed',
-        `${restaurant.name} is currently not accepting new orders.`
+        restaurant.closed_reason || `${restaurant.name} is currently closed and not accepting new orders.`
       );
       return;
     }

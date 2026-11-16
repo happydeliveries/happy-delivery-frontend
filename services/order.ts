@@ -1,6 +1,15 @@
 import api from './api';
 
 export const orderService = {
+  async getDeliveryQuote(data: {
+    restaurant_id: string;
+    delivery_address?: any;
+    latitude?: number;
+    longitude?: number;
+  }) {
+    return api.post('/orders/delivery-quote', data);
+  },
+
   async createOrder(data: {
     restaurant_id: string;
     items: Array<{

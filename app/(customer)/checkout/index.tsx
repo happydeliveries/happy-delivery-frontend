@@ -14,12 +14,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useCartStore } from '../../../store/cartStore';
 import { orderService } from '../../../services/order';
 import { authService, userService } from '../../../services/auth';
 import { useAuth } from '../../../hooks/useAuth';
 import { useLocation } from '../../../hooks/useLocation';
 import { colors } from '../../../constants/colors';
+import { getDeliveryTierLabel } from '../../../constants/deliveryPricing';
 
 type SavedAddress = {
   id?: string;
@@ -69,12 +71,27 @@ export default function CheckoutScreen() {
   const isCheckoutFocused = pathname.includes('checkout');
   const { user } = useAuth();
   const { location, getCurrentLocation, getAddressDetailsFromCoords } = useLocation();
-  const { items, total, restaurantId, restaurantName, clearCart } = useCartStore();
+  const {
+    items,
+    total,
+    restaurantId,
+    restaurantName,
+    clearCart,
+    distanceKm,
+    deliverable,
+    deliveryError,
+    isOpenNow,
+    closedReason,
+    setDeliveryQuote,
+  } = useCartStore();
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [quotingDelivery, setQuotingDelivery] = useState(false);
+  const [resolvedCoords, setResolvedCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   const [saveAddressForLater, setSaveAddressForLater] = useState(true);
+  const quoteReqIdRef = useRef(0);
 
   // Form State
   const [address, setAddress] = useState<{
@@ -127,6 +144,121 @@ export default function CheckoutScreen() {
     }
   }, [items.length]);
 
+  // Live radial distance + delivery fee + opening hours quote whenever address/restaurant changes
+  const fetchLiveDeliveryQuote = async (targetAddress: {
+    street: string;
+    city: string;
+    zip: string;
+    latitude?: number;
+    longitude?: number;
+  }) => {
+    if (!restaurantId) return null;
+    const reqId = ++quoteReqIdRef.current;
+    setQuotingDelivery(true);
+
+    try {
+      let lat = targetAddress.latitude;
+      let lng = targetAddress.longitude;
+
+      if ((typeof lat !== 'number' || typeof lng !== 'number') && targetAddress.street.trim() && targetAddress.city.trim()) {
+        try {
+          const query = [targetAddress.street.trim(), targetAddress.city.trim(), targetAddress.zip.trim(), 'South Africa']
+            .filter(Boolean)
+            .join(', ');
+          const geoResults = await Location.geocodeAsync(query);
+          if (Array.isArray(geoResults) && geoResults.length > 0) {
+            lat = geoResults[0].latitude;
+            lng = geoResults[0].longitude;
+          }
+        } catch {
+          // Server-side geocoder fallback inside /orders/delivery-quote handles this cleanly
+        }
+      }
+
+      if (quoteReqIdRef.current !== reqId) return null;
+
+      const res: any = await orderService.getDeliveryQuote({
+        restaurant_id: restaurantId,
+        delivery_address: {
+          street: targetAddress.street.trim(),
+          city: targetAddress.city.trim(),
+          zip: targetAddress.zip.trim(),
+          ...(typeof lat === 'number' && typeof lng === 'number' ? { latitude: lat, longitude: lng } : {}),
+        },
+      });
+
+      if (quoteReqIdRef.current !== reqId) return null;
+      const q = res?.data ?? res;
+      if (q) {
+        if (q.resolved_coordinates?.latitude && q.resolved_coordinates?.longitude) {
+          setResolvedCoords({
+            latitude: Number(q.resolved_coordinates.latitude),
+            longitude: Number(q.resolved_coordinates.longitude),
+          });
+        } else if (typeof lat === 'number' && typeof lng === 'number') {
+          setResolvedCoords({ latitude: lat, longitude: lng });
+        } else {
+          setResolvedCoords(null);
+        }
+
+        setDeliveryQuote({
+          deliveryFee: q.delivery_fee != null ? Number(q.delivery_fee) : null,
+          distanceKm: q.distance_km != null ? Number(q.distance_km) : null,
+          deliveryRadiusKm: q.max_radius_km != null ? Number(q.max_radius_km) : null,
+          deliverable: Boolean(q.deliverable),
+          deliveryError: q.deliverable ? null : (q.error || 'Address is outside delivery radius.'),
+          isOpenNow: q.is_open_now !== false,
+          closedReason: q.closed_reason || null,
+          openingHoursDisplay: q.opening_hours_display || null,
+        });
+      }
+      return q;
+    } catch {
+      return null;
+    } finally {
+      if (quoteReqIdRef.current === reqId) {
+        setQuotingDelivery(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!hydrated || items.length === 0 || !restaurantId) return;
+
+    const hasExplicitCoords =
+      typeof address.latitude === 'number' && typeof address.longitude === 'number';
+    const hasManualText =
+      address.street.trim().length >= 3 && address.city.trim().length >= 2;
+
+    if (!hasExplicitCoords && !hasManualText) {
+      // Still fetch restaurant open/closed status on initial screen load
+      const timer = setTimeout(() => {
+        fetchLiveDeliveryQuote({
+          ...address,
+          latitude: location?.coords?.latitude,
+          longitude: location?.coords?.longitude,
+        });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+
+    const delayMs = hasExplicitCoords ? 50 : 550;
+    const timer = setTimeout(() => {
+      fetchLiveDeliveryQuote(address);
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [
+    hydrated,
+    items.length,
+    restaurantId,
+    address.street,
+    address.city,
+    address.zip,
+    address.latitude,
+    address.longitude,
+  ]);
+
   // Load saved delivery addresses & preferred payment method when signed in
   useEffect(() => {
     if (!user) return;
@@ -166,6 +298,11 @@ export default function CheckoutScreen() {
 
   const applySavedAddress = (saved: SavedAddress) => {
     setSelectedSavedId(saved.id || saved.street || null);
+    setResolvedCoords(
+      typeof saved.latitude === 'number' && typeof saved.longitude === 'number'
+        ? { latitude: saved.latitude, longitude: saved.longitude }
+        : null
+    );
     setAddress({
       street: saved.street || saved.address || '',
       city: saved.city || '',
@@ -187,6 +324,7 @@ export default function CheckoutScreen() {
       }
       const geo = await getAddressDetailsFromCoords(coords.latitude, coords.longitude);
       setSelectedSavedId(null);
+      setResolvedCoords({ latitude: coords.latitude, longitude: coords.longitude });
       setAddress((prev) => ({
         ...prev,
         street: geo?.street || geo?.name || geo?.formattedAddress || prev.street,
@@ -227,6 +365,36 @@ export default function CheckoutScreen() {
     setLoading(true);
 
     try {
+      // Refresh authoritative delivery quote & store availability right before submitting
+      const liveQuote = await fetchLiveDeliveryQuote(address);
+      if (liveQuote) {
+        if (liveQuote.is_open_now === false) {
+          Alert.alert(
+            'Restaurant Closed',
+            liveQuote.closed_reason || `${restaurantName || 'This restaurant'} is currently closed.`
+          );
+          setLoading(false);
+          return;
+        }
+        if (liveQuote.deliverable === false) {
+          Alert.alert(
+            'Outside Delivery Area',
+            liveQuote.error || 'Your delivery address is outside this restaurant\'s delivery radius.'
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
+      const effLat =
+        address.latitude ??
+        liveQuote?.resolved_coordinates?.latitude ??
+        resolvedCoords?.latitude;
+      const effLng =
+        address.longitude ??
+        liveQuote?.resolved_coordinates?.longitude ??
+        resolvedCoords?.longitude;
+
       // Save address if user typed a new address and checked save
       if (saveAddressForLater && !selectedSavedId) {
         userService
@@ -236,8 +404,8 @@ export default function CheckoutScreen() {
             city: address.city.trim(),
             postal_code: address.zip.trim(),
             instructions: address.instructions.trim(),
-            latitude: address.latitude,
-            longitude: address.longitude,
+            latitude: effLat,
+            longitude: effLng,
             is_default: savedAddresses.length === 0,
           })
           .catch(() => {});
@@ -259,12 +427,15 @@ export default function CheckoutScreen() {
         city: address.city.trim(),
         zip: address.zip.trim(),
       };
-      const effLat = address.latitude ?? location?.coords.latitude;
-      const effLng = address.longitude ?? location?.coords.longitude;
       if (typeof effLat === 'number' && typeof effLng === 'number') {
         deliveryAddressPayload.latitude = effLat;
         deliveryAddressPayload.longitude = effLng;
       }
+
+      const effectiveDeliveryFee =
+        liveQuote?.delivery_fee != null
+          ? Number(liveQuote.delivery_fee)
+          : total.deliveryFee;
 
       const orderPayload = {
         restaurant_id: restaurantId,
@@ -274,7 +445,7 @@ export default function CheckoutScreen() {
         special_instructions: "", 
         payment_method: paymentMethod,
         subtotal: total.subtotal,
-        delivery_fee: total.deliveryFee,
+        delivery_fee: effectiveDeliveryFee,
         tax_amount: total.tax,
         tip_amount: tipAmount
       };
@@ -409,7 +580,8 @@ export default function CheckoutScreen() {
                   value={address.street}
                   onChangeText={(t) => {
                     setSelectedSavedId(null);
-                    setAddress({ ...address, street: t });
+                    setResolvedCoords(null);
+                    setAddress({ ...address, street: t, latitude: undefined, longitude: undefined });
                   }}
                 />
               </View>
@@ -423,7 +595,8 @@ export default function CheckoutScreen() {
                     value={address.city}
                     onChangeText={(t) => {
                       setSelectedSavedId(null);
-                      setAddress({ ...address, city: t });
+                      setResolvedCoords(null);
+                      setAddress({ ...address, city: t, latitude: undefined, longitude: undefined });
                     }}
                   />
                 </View>
@@ -433,7 +606,11 @@ export default function CheckoutScreen() {
                     style={styles.input}
                     placeholder="1200"
                     value={address.zip}
-                    onChangeText={(t) => setAddress({ ...address, zip: t })}
+                    onChangeText={(t) => {
+                      setSelectedSavedId(null);
+                      setResolvedCoords(null);
+                      setAddress({ ...address, zip: t, latitude: undefined, longitude: undefined });
+                    }}
                     keyboardType="numeric"
                   />
                 </View>
@@ -449,6 +626,35 @@ export default function CheckoutScreen() {
                   multiline
                 />
               </View>
+
+              {/* Live Radial Distance & Delivery Area Feedback */}
+              {quotingDelivery ? (
+                <View style={styles.quoteBannerNeutral}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.quoteBannerNeutralText}>
+                    Checking restaurant distance & delivery fee...
+                  </Text>
+                </View>
+              ) : !isOpenNow ? (
+                <View style={styles.quoteBannerError}>
+                  <Ionicons name="time-outline" size={18} color="#991B1B" />
+                  <Text style={styles.quoteBannerErrorText}>
+                    {closedReason || `${restaurantName || 'This restaurant'} is currently closed.`}
+                  </Text>
+                </View>
+              ) : !deliverable && deliveryError ? (
+                <View style={styles.quoteBannerError}>
+                  <Ionicons name="warning-outline" size={18} color="#991B1B" />
+                  <Text style={styles.quoteBannerErrorText}>{deliveryError}</Text>
+                </View>
+              ) : distanceKm != null ? (
+                <View style={styles.quoteBannerSuccess}>
+                  <Ionicons name="checkmark-circle" size={18} color="#166534" />
+                  <Text style={styles.quoteBannerSuccessText}>
+                    {getDeliveryTierLabel(distanceKm)} • Delivery Fee R {total.deliveryFee.toFixed(2)}
+                  </Text>
+                </View>
+              ) : null}
 
               {user && !selectedSavedId && (
                 <TouchableOpacity
@@ -610,8 +816,15 @@ export default function CheckoutScreen() {
                 <Text style={styles.summaryValue}>R {total.subtotal.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Delivery Fee</Text>
-                <Text style={styles.summaryValue}>R {total.deliveryFee.toFixed(2)}</Text>
+                <View>
+                  <Text style={styles.summaryLabel}>
+                    Delivery Fee{distanceKm != null ? ` (${distanceKm.toFixed(1)} km)` : ''}
+                  </Text>
+                  <Text style={styles.summarySubLabel}>{getDeliveryTierLabel(distanceKm)}</Text>
+                </View>
+                <Text style={styles.summaryValue}>
+                  {quotingDelivery ? '...' : `R ${total.deliveryFee.toFixed(2)}`}
+                </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Tax</Text>
@@ -637,14 +850,23 @@ export default function CheckoutScreen() {
         {/* Footer Action */}
         <View style={styles.footer}>
           <TouchableOpacity 
-            style={[styles.placeOrderBtn, loading && styles.disabledBtn]} 
+            style={[
+              styles.placeOrderBtn,
+              (loading || quotingDelivery || !isOpenNow || !deliverable) && styles.disabledBtn,
+            ]} 
             onPress={handlePlaceOrder}
-            disabled={loading}
+            disabled={loading || quotingDelivery || !isOpenNow || !deliverable}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.placeOrderText}>Request Order • R {grandTotal.toFixed(2)}</Text>
+              <Text style={styles.placeOrderText}>
+                {!isOpenNow
+                  ? 'Restaurant Closed'
+                  : !deliverable
+                    ? 'Outside Delivery Area'
+                    : `Request Order • R ${grandTotal.toFixed(2)}`}
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -888,5 +1110,58 @@ const styles = StyleSheet.create({
   tipSummaryValue: {
     color: colors.primary,
     fontWeight: '700',
+  },
+  summarySubLabel: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    marginTop: 2,
+  },
+  quoteBannerNeutral: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  quoteBannerNeutralText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  quoteBannerSuccess: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  quoteBannerSuccessText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#166534',
+    fontWeight: '600',
+  },
+  quoteBannerError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  quoteBannerErrorText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#991B1B',
+    fontWeight: '600',
   },
 });

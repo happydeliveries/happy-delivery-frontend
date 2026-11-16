@@ -1,25 +1,87 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import CartItem from '../../../components/customer/CartItem';
 import Button from '../../../components/common/Button';
 import { colors } from '../../../constants/colors';
 import { useCartStore } from '../../../store/cartStore';
+import { useLocation } from '../../../hooks/useLocation';
+import { orderService } from '../../../services/order';
+import { getDeliveryTierLabel } from '../../../constants/deliveryPricing';
 
 export default function CartScreen() {
   const router = useRouter();
-  const { items, total, clearCart, removeItem, updateQuantity, restaurantId, restaurantName } = useCartStore();
+  const { location } = useLocation();
+  const [quoting, setQuoting] = useState(false);
+  const {
+    items,
+    total,
+    clearCart,
+    removeItem,
+    updateQuantity,
+    restaurantId,
+    restaurantName,
+    distanceKm,
+    deliverable,
+    deliveryError,
+    isOpenNow,
+    closedReason,
+    setDeliveryQuote,
+  } = useCartStore();
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      if (items.length === 0 || !restaurantId) return;
+
+      const lat = location?.coords?.latitude;
+      const lng = location?.coords?.longitude;
+      setQuoting(true);
+
+      orderService
+        .getDeliveryQuote({
+          restaurant_id: restaurantId,
+          ...(typeof lat === 'number' && typeof lng === 'number'
+            ? { latitude: lat, longitude: lng }
+            : {}),
+        })
+        .then((res: any) => {
+          if (cancelled) return;
+          const q = res?.data ?? res;
+          if (!q) return;
+          setDeliveryQuote({
+            deliveryFee: q.delivery_fee != null ? Number(q.delivery_fee) : null,
+            distanceKm: q.distance_km != null ? Number(q.distance_km) : null,
+            deliveryRadiusKm: q.max_radius_km != null ? Number(q.max_radius_km) : null,
+            deliverable: q.distance_km != null ? Boolean(q.deliverable) : true,
+            deliveryError: q.distance_km != null && !q.deliverable ? q.error : null,
+            isOpenNow: q.is_open_now !== false,
+            closedReason: q.closed_reason || null,
+            openingHoursDisplay: q.opening_hours_display || null,
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setQuoting(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [items.length, restaurantId, location?.coords?.latitude, location?.coords?.longitude])
+  );
 
   const handleCheckout = () => {
-    if (items.length === 0) return;
+    if (items.length === 0 || !isOpenNow) return;
     router.push('/(customer)/checkout');
   };
 
@@ -92,6 +154,25 @@ export default function CartScreen() {
         ))}
       </ScrollView>
 
+      {/* Warning banners for Closed / Out-of-radius */}
+      {!isOpenNow && (
+        <View style={styles.warningBanner}>
+          <Ionicons name="time-outline" size={20} color="#991B1B" />
+          <Text style={styles.warningBannerText}>
+            {closedReason || `${restaurantName || 'This restaurant'} is currently closed and not accepting orders.`}
+          </Text>
+        </View>
+      )}
+
+      {isOpenNow && !deliverable && deliveryError && (
+        <View style={[styles.warningBanner, { backgroundColor: '#FFFBEB', borderColor: '#F59E0B' }]}>
+          <Ionicons name="location-outline" size={20} color="#B45309" />
+          <Text style={[styles.warningBannerText, { color: '#92400E' }]}>
+            {deliveryError} You can still enter a closer delivery address at Checkout.
+          </Text>
+        </View>
+      )}
+
       {/* Order Summary */}
       <View style={styles.summaryContainer}>
         <Text style={styles.summaryTitle}>Order Summary</Text>
@@ -102,8 +183,21 @@ export default function CartScreen() {
         </View>
         
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Delivery Fee</Text>
-          <Text style={styles.summaryValue}>R {total.deliveryFee.toFixed(2)}</Text>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={styles.summaryLabel}>
+              Delivery Fee {distanceKm != null ? `(${distanceKm.toFixed(1)} km)` : '(Estimated)'}
+            </Text>
+            <Text style={styles.summarySubLabel}>
+              {quoting
+                ? 'Calculating radial delivery fee...'
+                : getDeliveryTierLabel(distanceKm)}
+            </Text>
+          </View>
+          {quoting ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Text style={styles.summaryValue}>R {total.deliveryFee.toFixed(2)}</Text>
+          )}
         </View>
         
         <View style={styles.summaryRow}>
@@ -120,9 +214,13 @@ export default function CartScreen() {
       {/* Checkout Button */}
       <View style={styles.checkoutContainer}>
         <Button
-          title={`Proceed to Checkout • R ${total.total.toFixed(2)}`}
+          title={
+            !isOpenNow
+              ? 'Restaurant Closed'
+              : `Proceed to Checkout • R ${total.total.toFixed(2)}`
+          }
           onPress={handleCheckout}
-          disabled={items.length === 0}
+          disabled={items.length === 0 || !isOpenNow}
           style={styles.checkoutButton}
         />
       </View>
@@ -199,6 +297,28 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 14,
     color: colors.textSecondary,
+  },
+  summarySubLabel: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    marginTop: 2,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF2F2',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  warningBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#991B1B',
   },
   summaryValue: {
     fontSize: 14,

@@ -31,7 +31,11 @@ type Restaurant = {
   logo_url: string;
   cover_image_url: string;
   opening_hours: any;
+  opening_hours_display?: string;
+  closed_reason?: string;
+  is_open_now?: boolean;
   is_accepting_orders: boolean;
+  delivery_radius_km?: number;
 };
 
 type MenuItemType = {
@@ -169,10 +173,10 @@ export default function RestaurantDetailsScreen() {
   const handleAddToCart = (item: any) => {
     if (!restaurant) return;
 
-    if (restaurant.is_accepting_orders === false) {
+    if (restaurant.is_accepting_orders === false || restaurant.is_open_now === false) {
       Alert.alert(
         'Restaurant Closed',
-        `${restaurant.name} is currently not accepting new orders.`
+        restaurant.closed_reason || `${restaurant.name} is currently closed and not accepting new orders.`
       );
       return;
     }
@@ -307,9 +311,11 @@ export default function RestaurantDetailsScreen() {
               )}
               
               <View style={styles.statusRow}>
-                <View style={[styles.statusDot, restaurant.is_accepting_orders ? styles.open : styles.closed]} />
-                <Text style={styles.statusText}>
-                  {restaurant.is_accepting_orders ? 'Open Now' : 'Closed'}
+                <View style={[styles.statusDot, (restaurant.is_accepting_orders && restaurant.is_open_now !== false) ? styles.open : styles.closed]} />
+                <Text style={styles.statusText} numberOfLines={1}>
+                  {(restaurant.is_accepting_orders && restaurant.is_open_now !== false)
+                    ? `Open Now${restaurant.opening_hours_display ? ` (${restaurant.opening_hours_display})` : ''}`
+                    : `Closed${restaurant.opening_hours_display ? ` • ${restaurant.opening_hours_display}` : ''}`}
                 </Text>
               </View>
             </View>

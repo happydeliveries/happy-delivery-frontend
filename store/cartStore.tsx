@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, ReactNode } from 'react';
+import {
+  DEFAULT_BASE_DELIVERY_FEE,
+  calculateRadialDeliveryFee,
+} from '../constants/deliveryPricing';
 
 type CartItem = {
   id: string;
@@ -18,10 +22,29 @@ type CartItem = {
   allergenNotes?: string;
 };
 
+type DeliveryQuoteUpdate = {
+  deliveryFee?: number | null;
+  distanceKm?: number | null;
+  deliveryRadiusKm?: number | null;
+  deliverable?: boolean;
+  deliveryError?: string | null;
+  isOpenNow?: boolean;
+  closedReason?: string | null;
+  openingHoursDisplay?: string | null;
+};
+
 type CartStore = {
   items: CartItem[];
   restaurantId?: string;
   restaurantName?: string;
+  distanceKm: number | null;
+  deliveryRadiusKm: number | null;
+  quotedDeliveryFee: number | null;
+  deliverable: boolean;
+  deliveryError: string | null;
+  isOpenNow: boolean;
+  closedReason: string | null;
+  openingHoursDisplay: string | null;
   total: {
     subtotal: number;
     deliveryFee: number;
@@ -33,6 +56,7 @@ type CartStore = {
   updateQuantity: (menuItemId: string, quantity: number, selectedOptions?: Record<string, any>) => void;
   clearCart: () => void;
   setRestaurant: (restaurantId: string, restaurantName: string) => void;
+  setDeliveryQuote: (quote: DeliveryQuoteUpdate) => void;
   calculateTotals: () => void;
 };
 
@@ -57,19 +81,34 @@ const calculateItemId = (item: Pick<CartItem, 'menuItemId' | 'selectedOptions'>)
   return buildCartItemKey(item.menuItemId, item.selectedOptions || {});
 };
 
-const calculateDeliveryFee = (subtotal: number) => {
-  if (subtotal === 0) return 0;
-  if (subtotal > 25) return 0; // Free delivery over R25
-  return 3.99;
-};
-
 const calculateTax = (subtotal: number) => {
   return subtotal * 0.08; // 8% tax
 };
 
-const computeCartTotals = (items: CartItem[]) => {
+const resolveEffectiveDeliveryFee = (
+  items: CartItem[],
+  quotedDeliveryFee: number | null,
+  distanceKm: number | null,
+  deliveryRadiusKm: number | null
+) => {
+  if (!items || items.length === 0) return 0;
+  if (quotedDeliveryFee !== null && quotedDeliveryFee !== undefined && Number.isFinite(Number(quotedDeliveryFee))) {
+    return Number(quotedDeliveryFee);
+  }
+  if (distanceKm !== null && distanceKm !== undefined && Number.isFinite(Number(distanceKm))) {
+    return calculateRadialDeliveryFee(Number(distanceKm), deliveryRadiusKm ?? 15);
+  }
+  return DEFAULT_BASE_DELIVERY_FEE;
+};
+
+const computeCartTotals = (
+  items: CartItem[],
+  quotedDeliveryFee: number | null = null,
+  distanceKm: number | null = null,
+  deliveryRadiusKm: number | null = null
+) => {
   const subtotal = items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
-  const deliveryFee = calculateDeliveryFee(subtotal);
+  const deliveryFee = resolveEffectiveDeliveryFee(items, quotedDeliveryFee, distanceKm, deliveryRadiusKm);
   const tax = calculateTax(subtotal);
   return {
     subtotal,
@@ -83,6 +122,14 @@ export const useCartStore = create<CartStore>()(
   persist(
     (set, get) => ({
       items: [],
+      distanceKm: null,
+      deliveryRadiusKm: null,
+      quotedDeliveryFee: null,
+      deliverable: true,
+      deliveryError: null,
+      isOpenNow: true,
+      closedReason: null,
+      openingHoursDisplay: null,
       total: {
         subtotal: 0,
         deliveryFee: 0,
@@ -121,11 +168,23 @@ export const useCartStore = create<CartStore>()(
             updatedItems = [...baseItems, newItem];
           }
 
+          const nextQuotedFee = isDifferentRestaurant ? null : state.quotedDeliveryFee;
+          const nextDistanceKm = isDifferentRestaurant ? null : state.distanceKm;
+          const nextRadiusKm = isDifferentRestaurant ? null : state.deliveryRadiusKm;
+
           return {
             items: updatedItems,
             restaurantId: itemData.restaurantId,
             restaurantName: itemData.restaurantName,
-            total: computeCartTotals(updatedItems),
+            distanceKm: nextDistanceKm,
+            deliveryRadiusKm: nextRadiusKm,
+            quotedDeliveryFee: nextQuotedFee,
+            deliverable: isDifferentRestaurant ? true : state.deliverable,
+            deliveryError: isDifferentRestaurant ? null : state.deliveryError,
+            isOpenNow: isDifferentRestaurant ? true : state.isOpenNow,
+            closedReason: isDifferentRestaurant ? null : state.closedReason,
+            openingHoursDisplay: isDifferentRestaurant ? null : state.openingHoursDisplay,
+            total: computeCartTotals(updatedItems, nextQuotedFee, nextDistanceKm, nextRadiusKm),
           };
         });
       },
@@ -137,12 +196,26 @@ export const useCartStore = create<CartStore>()(
           const updatedItems = state.items.filter(
             (item) => calculateItemId(item) !== itemId && item.id !== itemId
           );
+          const empty = updatedItems.length === 0;
 
           return {
             items: updatedItems,
-            restaurantId: updatedItems.length === 0 ? undefined : state.restaurantId,
-            restaurantName: updatedItems.length === 0 ? undefined : state.restaurantName,
-            total: computeCartTotals(updatedItems),
+            restaurantId: empty ? undefined : state.restaurantId,
+            restaurantName: empty ? undefined : state.restaurantName,
+            distanceKm: empty ? null : state.distanceKm,
+            deliveryRadiusKm: empty ? null : state.deliveryRadiusKm,
+            quotedDeliveryFee: empty ? null : state.quotedDeliveryFee,
+            deliverable: empty ? true : state.deliverable,
+            deliveryError: empty ? null : state.deliveryError,
+            isOpenNow: empty ? true : state.isOpenNow,
+            closedReason: empty ? null : state.closedReason,
+            openingHoursDisplay: empty ? null : state.openingHoursDisplay,
+            total: computeCartTotals(
+              updatedItems,
+              empty ? null : state.quotedDeliveryFee,
+              empty ? null : state.distanceKm,
+              empty ? null : state.deliveryRadiusKm
+            ),
           };
         });
       },
@@ -164,7 +237,12 @@ export const useCartStore = create<CartStore>()(
 
           return {
             items: updatedItems,
-            total: computeCartTotals(updatedItems),
+            total: computeCartTotals(
+              updatedItems,
+              state.quotedDeliveryFee,
+              state.distanceKm,
+              state.deliveryRadiusKm
+            ),
           };
         });
       },
@@ -174,6 +252,14 @@ export const useCartStore = create<CartStore>()(
           items: [],
           restaurantId: undefined,
           restaurantName: undefined,
+          distanceKm: null,
+          deliveryRadiusKm: null,
+          quotedDeliveryFee: null,
+          deliverable: true,
+          deliveryError: null,
+          isOpenNow: true,
+          closedReason: null,
+          openingHoursDisplay: null,
           total: {
             subtotal: 0,
             deliveryFee: 0,
@@ -184,13 +270,58 @@ export const useCartStore = create<CartStore>()(
       },
 
       setRestaurant: (restaurantId, restaurantName) => {
-        set({ restaurantId, restaurantName });
+        set((state) => {
+          if (state.restaurantId === restaurantId && state.restaurantName === restaurantName) {
+            return {};
+          }
+          return {
+            restaurantId,
+            restaurantName,
+            distanceKm: null,
+            deliveryRadiusKm: null,
+            quotedDeliveryFee: null,
+            deliverable: true,
+            deliveryError: null,
+            isOpenNow: true,
+            closedReason: null,
+            openingHoursDisplay: null,
+          };
+        });
+      },
+
+      setDeliveryQuote: (quote) => {
+        set((state) => {
+          const nextQuotedFee =
+            quote.deliveryFee !== undefined ? quote.deliveryFee : state.quotedDeliveryFee;
+          const nextDistanceKm =
+            quote.distanceKm !== undefined ? quote.distanceKm : state.distanceKm;
+          const nextRadiusKm =
+            quote.deliveryRadiusKm !== undefined ? quote.deliveryRadiusKm : state.deliveryRadiusKm;
+
+          return {
+            quotedDeliveryFee: nextQuotedFee,
+            distanceKm: nextDistanceKm,
+            deliveryRadiusKm: nextRadiusKm,
+            deliverable: quote.deliverable !== undefined ? quote.deliverable : state.deliverable,
+            deliveryError: quote.deliveryError !== undefined ? quote.deliveryError : state.deliveryError,
+            isOpenNow: quote.isOpenNow !== undefined ? quote.isOpenNow : state.isOpenNow,
+            closedReason: quote.closedReason !== undefined ? quote.closedReason : state.closedReason,
+            openingHoursDisplay:
+              quote.openingHoursDisplay !== undefined ? quote.openingHoursDisplay : state.openingHoursDisplay,
+            total: computeCartTotals(state.items, nextQuotedFee, nextDistanceKm, nextRadiusKm),
+          };
+        });
       },
 
       calculateTotals: () => {
         const state = get();
         set({
-          total: computeCartTotals(state.items),
+          total: computeCartTotals(
+            state.items,
+            state.quotedDeliveryFee,
+            state.distanceKm,
+            state.deliveryRadiusKm
+          ),
         });
       },
     }),

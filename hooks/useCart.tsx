@@ -91,10 +91,7 @@ export const useCart = () => {
       0
     );
     
-    // Free delivery threshold
-    const delivery_fee = subtotal >= ORDER_CONFIG.FREE_DELIVERY_THRESHOLD 
-      ? 0 
-      : ORDER_CONFIG.DEFAULT_DELIVERY_FEE;
+    const delivery_fee = subtotal > 0 ? ORDER_CONFIG.DEFAULT_DELIVERY_FEE : 0;
     
     const tax_amount = subtotal * ORDER_CONFIG.TAX_RATE;
     const total_amount = subtotal + delivery_fee + tax_amount + cart.tip_amount;
