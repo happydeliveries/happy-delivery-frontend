@@ -210,7 +210,10 @@ export default function TrackingScreen() {
     }, 4000);
 
     if (socket && id) {
-      socket.emit('join_order', id);
+      const joinOrderRoom = () => {
+        socket.emit('join_order', id);
+      };
+      joinOrderRoom();
 
       const handleDriverLocation = (data: any) => {
         const coords = parseCoordinates(data?.location || data);
@@ -260,12 +263,14 @@ export default function TrackingScreen() {
         }
       };
 
+      socket.on('connect', joinOrderRoom);
       socket.on('driver_location', handleDriverLocation);
       socket.on('order_update', handleOrderUpdate);
       socket.on('verification_code_generated', handleVerificationCode);
 
       return () => {
         clearInterval(pollInterval);
+        socket.off('connect', joinOrderRoom);
         socket.off('driver_location', handleDriverLocation);
         socket.off('order_update', handleOrderUpdate);
         socket.off('verification_code_generated', handleVerificationCode);
@@ -404,12 +409,7 @@ export default function TrackingScreen() {
 
   const effectiveDriverLocation: LatLng | null =
     driverLocation ||
-    (['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'].includes(order.status)
-      ? restaurantLocation || {
-          latitude: userLocation.latitude + 0.008,
-          longitude: userLocation.longitude + 0.008,
-        }
-      : null);
+    (order.status === 'picked_up' ? restaurantLocation : null);
 
   const distanceKm = getDistanceKm(effectiveDriverLocation, userLocation);
   const etaMinutes = distanceKm !== null ? Math.max(2, Math.round((distanceKm / 30) * 60 + 2)) : null;

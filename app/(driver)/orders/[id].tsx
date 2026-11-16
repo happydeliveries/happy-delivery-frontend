@@ -9,11 +9,15 @@ import {
   Alert,
   Linking,
   Platform,
-  Animated
+  Animated,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 
 import { colors } from '../../../constants/colors';
@@ -26,7 +30,9 @@ type OrderItem = {
   item_name?: string;
   quantity: number;
   unit_price: number;
+  total_price?: number;
   special_instructions?: string;
+  selected_options?: any;
 };
 
 type Order = {
@@ -63,6 +69,16 @@ export default function DriverOrderDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [isLiveTracking, setIsLiveTracking] = useState(false);
+
+  // Scan modal state
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+  const [scanAttempts, setScanAttempts] = useState(0);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualCode, setManualCode] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
   
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const lastRestPersistRef = useRef<number>(0);
@@ -291,7 +307,68 @@ export default function DriverOrderDetailsScreen() {
   };
 
   const handleScanDeliveryCode = () => {
-    router.push(`/(driver)/orders/${id}/scan`);
+    // Reset scan state each time the modal opens
+    setScanned(false);
+    setScanAttempts(0);
+    setManualMode(false);
+    setManualCode('');
+    setScanMessage(null);
+    setScanLoading(false);
+    // Request camera permission if not already granted
+    if (cameraPermission && !cameraPermission.granted && cameraPermission.canAskAgain) {
+      requestCameraPermission();
+    }
+    setShowScanModal(true);
+  };
+
+  const verifyScanCode = async (code: string) => {
+    if (!id) {
+      setScanMessage('Missing order ID.');
+      return;
+    }
+    setScanLoading(true);
+    setScanMessage(null);
+    let successful = false;
+
+    try {
+      await driverService.verifyDeliveryCode(id, code.trim());
+      successful = true;
+      setShowScanModal(false);
+      await fetchOrderDetails();
+      Alert.alert('Success', 'Delivery verified successfully! Order completed.');
+    } catch (error: any) {
+      const errorText =
+        error.response?.data?.error ||
+        error.message ||
+        'Delivery code verification failed';
+      setScanMessage(errorText);
+      setScanAttempts((prev) => {
+        const next = prev + 1;
+        if (next >= 3) {
+          setManualMode(true);
+        }
+        return next;
+      });
+    } finally {
+      setScanLoading(false);
+      if (!successful) {
+        setScanned(false);
+      }
+    }
+  };
+
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    if (scanned || scanLoading) return;
+    setScanned(true);
+    await verifyScanCode(data);
+  };
+
+  const handleManualSubmit = async () => {
+    if (!manualCode.trim()) {
+      setScanMessage('Please enter the fallback delivery code.');
+      return;
+    }
+    await verifyScanCode(manualCode);
   };
 
   const openMaps = (address: string | any) => {
@@ -334,6 +411,14 @@ export default function DriverOrderDetailsScreen() {
     return address || 'Unknown Address';
   };
 
+  const goBackToOrders = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(driver)/orders');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -346,6 +431,9 @@ export default function DriverOrderDetailsScreen() {
     return (
       <View style={styles.center}>
         <Text>Order not found</Text>
+        <TouchableOpacity style={[styles.retryButton, { marginTop: 16 }]} onPress={goBackToOrders}>
+          <Text style={styles.retryText}>Back to Orders</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -356,7 +444,7 @@ export default function DriverOrderDetailsScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={goBackToOrders} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Order #{order.order_number || order.id.slice(0, 6)}</Text>
@@ -516,6 +604,154 @@ export default function DriverOrderDetailsScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Embedded Delivery Code Scanner Modal */}
+      <Modal
+        visible={showScanModal}
+        animationType="slide"
+        onRequestClose={() => setShowScanModal(false)}
+      >
+        <SafeAreaView style={styles.scanModalContainer}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.scanHeader}>
+              <TouchableOpacity
+                onPress={() => setShowScanModal(false)}
+                style={styles.scanHeaderBtn}
+                accessibilityLabel="Close scanner"
+              >
+                <Ionicons name="close" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={styles.scanTitle}>Verify Delivery Code</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setScanMessage(null);
+                  setScanned(false);
+                  setManualMode((v) => !v);
+                }}
+                style={styles.scanHeaderBtn}
+                accessibilityLabel="Toggle manual entry"
+              >
+                <Ionicons
+                  name={manualMode ? 'qr-code-outline' : 'keypad-outline'}
+                  size={22}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.scanContent}>
+              <Text style={styles.scanSubtitle}>
+                Scan the customer's delivery QR code or enter the code shown on their tracking screen.
+              </Text>
+
+              {!manualMode ? (
+                !cameraPermission ? (
+                  <View style={styles.permissionCard}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.permissionText}>Requesting camera permission...</Text>
+                  </View>
+                ) : !cameraPermission.granted ? (
+                  <View style={styles.permissionCard}>
+                    <Ionicons name="camera-outline" size={48} color={colors.textSecondary} />
+                    <Text style={styles.permissionText}>
+                      Camera access is needed to scan the delivery QR code.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.retryButton}
+                      onPress={requestCameraPermission}
+                    >
+                      <Text style={styles.retryText}>Allow Camera Access</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.retryButton, { backgroundColor: colors.gray600, marginTop: 12 }]}
+                      onPress={() => setManualMode(true)}
+                    >
+                      <Text style={styles.retryText}>Enter Code Manually</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.scannerWrapper}>
+                    {showScanModal && (
+                      <CameraView
+                        style={styles.scanner}
+                        onBarcodeScanned={scanned || scanLoading ? undefined : handleBarCodeScanned}
+                        barcodeScannerSettings={{
+                          barcodeTypes: ['qr'],
+                        }}
+                      />
+                    )}
+                    <View style={styles.scannerOverlay}>
+                      {scanLoading ? (
+                        <View style={styles.scanHintBox}>
+                          <ActivityIndicator color="#fff" size="small" />
+                          <Text style={styles.scanHint}>Verifying code...</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.scanHint}>Hold the QR code inside the frame</Text>
+                      )}
+                    </View>
+                  </View>
+                )
+              ) : (
+                <View style={styles.manualContainer}>
+                  <Text style={styles.manualLabel}>Enter customer delivery code</Text>
+                  <TextInput
+                    value={manualCode}
+                    onChangeText={setManualCode}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    placeholder="e.g. ABCD-1234"
+                    placeholderTextColor={colors.textTertiary}
+                    style={styles.manualInput}
+                    editable={!scanLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.verifyCodeBtn}
+                    onPress={handleManualSubmit}
+                    disabled={scanLoading}
+                  >
+                    {scanLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.verifyCodeBtnText}>Verify & Complete Order</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.modeSwitchBtn}
+                onPress={() => {
+                  setScanMessage(null);
+                  setScanned(false);
+                  setManualMode((v) => !v);
+                }}
+              >
+                <Ionicons
+                  name={manualMode ? 'qr-code-outline' : 'keypad-outline'}
+                  size={18}
+                  color={colors.primary}
+                />
+                <Text style={styles.modeSwitchText}>
+                  {manualMode ? 'Use Camera QR Scanner Instead' : 'Enter Code Manually Instead'}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.hintBox}>
+                <Text style={styles.hintTitle}>Verification tips</Text>
+                <Text style={styles.hintText}>
+                  Failed scan attempts: {scanAttempts} of 3. Ask the customer to open "Show Delivery Code" on their tracking screen.
+                </Text>
+              </View>
+
+              {scanMessage ? <Text style={styles.scanErrorText}>{scanMessage}</Text> : null}
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -626,4 +862,143 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+
+  scanModalContainer: { flex: 1, backgroundColor: '#fff' },
+  scanHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  scanHeaderBtn: { padding: 6 },
+  scanTitle: { fontSize: 18, fontWeight: 'bold', color: colors.textPrimary },
+  scanContent: { flex: 1, padding: 20 },
+  scanSubtitle: {
+    fontSize: 14,
+    color: colors.gray600,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  permissionCard: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: colors.gray50,
+    borderRadius: 20,
+  },
+  permissionText: {
+    marginTop: 12,
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  retryText: { color: '#fff', fontWeight: '700' },
+  scannerWrapper: {
+    flex: 1,
+    minHeight: 300,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  scanner: { flex: 1 },
+  scannerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 20,
+    alignItems: 'center',
+  },
+  scanHintBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  scanHint: {
+    color: '#fff',
+    fontSize: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  manualContainer: { marginTop: 10 },
+  manualLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 10,
+  },
+  manualInput: {
+    borderWidth: 1,
+    borderColor: colors.gray200,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: 16,
+    color: colors.textPrimary,
+  },
+  verifyCodeBtn: {
+    backgroundColor: colors.success,
+    paddingVertical: 15,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verifyCodeBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  modeSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  modeSwitchText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  hintBox: {
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: colors.gray50,
+    borderRadius: 16,
+  },
+  hintTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 6,
+  },
+  hintText: {
+    fontSize: 13,
+    color: colors.gray600,
+    lineHeight: 18,
+  },
+  scanErrorText: {
+    marginTop: 14,
+    color: colors.error,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });

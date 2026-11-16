@@ -66,7 +66,7 @@ export default function DriverLayout() {
       />
       
       <Tabs.Screen
-        name="orders/index"
+        name="orders"
         options={{
           title: 'Orders',
           tabBarIcon: ({ color, size, focused }) => (
@@ -103,14 +103,6 @@ export default function DriverLayout() {
 
       <Tabs.Screen
         name="profile/vehicle"
-        options={{ 
-          tabBarButton: () => null,
-          tabBarItemStyle: { display: 'none' },
-        }}
-      />
-
-      <Tabs.Screen
-        name="orders/[id]"
         options={{ 
           tabBarButton: () => null,
           tabBarItemStyle: { display: 'none' },
