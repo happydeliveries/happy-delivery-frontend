@@ -4,6 +4,7 @@ import { Provider as PaperProvider } from 'react-native-paper';
 import { AuthProvider } from '../hooks/useAuth';
 import { CartProvider } from '../store/cartStore';
 import { theme } from '../constants/theme';
+import AppFeedbackHost from '../components/common/AppFeedbackHost';
 
 export default function RootLayout() {
   return (
@@ -18,6 +19,7 @@ export default function RootLayout() {
             <Stack.Screen name="(driver)" />
             <Stack.Screen name="(manager)" />
           </Stack>
+          <AppFeedbackHost />
         </CartProvider>
       </AuthProvider>
     </PaperProvider>

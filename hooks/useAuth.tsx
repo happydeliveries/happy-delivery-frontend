@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authService } from '../services/auth';
 import { router } from 'expo-router';
 import { releaseDriverOrderAlertResources } from '../services/driverAlertSound';
 import { useDriverAlertStore } from '../store/driverAlertStore';
+import { useAddressStore } from '../store/addressStore';
+import { useFeedbackStore } from '../store/feedbackStore';
 
 type User = {
   id: string;
@@ -60,20 +61,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (freshUser?.id) {
             setUser(freshUser);
             await AsyncStorage.setItem('user', JSON.stringify(freshUser));
+            if (freshUser.role === 'customer') {
+              useAddressStore.getState().syncSavedAddresses().catch(() => {});
+            }
           }
         } catch (err: any) {
           // Only clear token on 401 Unauthorized — not on network timeouts or 500/503 DB errors
           if (err?.response?.status === 401) {
             await authService.logout();
+            useAddressStore.getState().resetForLogout();
             setToken(null);
             setUser(null);
-          } else {
-            console.warn('Keeping cached auth session (profile check failed due to network/DB):', err?.message || err);
+          } else if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.log('Keeping cached auth session (profile check skipped due to connection)');
           }
         }
       }
-    } catch (error) {
-      console.error('Error loading user:', error);
+    } catch {
+      // Ignore AsyncStorage read glitches on boot
     } finally {
       setIsLoading(false);
     }
@@ -94,7 +99,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     
     setToken(nextToken);
     setUser(nextUser);
-    
+    if (nextUser.role === 'customer') {
+      useAddressStore.getState().syncSavedAddresses().catch(() => {});
+    }
+
     // Redirect based on role
     switch (nextUser.role) {
       case 'customer':
@@ -114,12 +122,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // If registering a driver account, it requires manager approval before login
     if ((response as any)?.pending_approval || (response as any)?.data?.pending_approval) {
-      Alert.alert(
-        'Application Pending Approval',
-        (response as any)?.message ||
+      useFeedbackStore.getState().showPopup({
+        type: 'success',
+        title: 'Application Pending Approval',
+        message:
+          (response as any)?.message ||
           'Your driver application has been submitted for manager review. You will receive an email once your account is approved and ready to sign in.',
-        [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
-      );
+        primaryLabel: 'OK',
+        onPrimary: () => router.replace('/(auth)/login'),
+      });
       router.replace('/(auth)/login');
       return;
     }
@@ -135,7 +146,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     
     setToken(nextToken);
     setUser(nextUser);
-    
+    if (nextUser.role === 'customer') {
+      useAddressStore.getState().syncSavedAddresses().catch(() => {});
+    }
+
     // Redirect based on role
     switch (nextUser.role) {
       case 'customer':
@@ -153,6 +167,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logout = async () => {
     await releaseDriverOrderAlertResources();
     useDriverAlertStore.getState().reset();
+    useAddressStore.getState().resetForLogout();
     await authService.logout();
     setToken(null);
     setUser(null);

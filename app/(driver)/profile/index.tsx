@@ -67,8 +67,8 @@ export default function DriverProfileScreen() {
       // FIX: Your backend returns { success: true, data: profile }
       // Ensure you are setting the .data portion to your state
       setProfile(response.data || response); 
-    } catch (error) {
-      console.error('Error fetching driver profile:', error);
+    } catch {
+      // Avoid triggering red LogBox banner on profile fetch glitch
     } finally {
       setLoading(false);
     }

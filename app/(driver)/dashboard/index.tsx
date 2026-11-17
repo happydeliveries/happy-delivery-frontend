@@ -17,6 +17,8 @@ import { driverService } from '../../../services/driver';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSocket } from '../../../hooks/useSocket';
 import { useDriverAlertStore } from '../../../store/driverAlertStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
+import { getFriendlyErrorMessage } from '../../../utils/errorMessages';
 
 type DriverStats = {
   totalDeliveries: number;
@@ -64,8 +66,7 @@ export default function DriverDashboardScreen() {
         ordersResponse?.data || (Array.isArray(ordersResponse) ? ordersResponse : []);
       setAvailableOrders(ordersArray);
       syncAvailableOrders(ordersArray);
-    } catch (error) {
-      console.error('Error fetching available orders:', error);
+    } catch {
       setAvailableOrders([]);
     }
   }, [syncAvailableOrders]);
@@ -90,7 +91,12 @@ export default function DriverDashboardScreen() {
       }
       hasLoadedRef.current = true;
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      if (!silent) {
+        useFeedbackStore.getState().showToast({
+          type: 'warning',
+          message: getFriendlyErrorMessage(error),
+        });
+      }
       setAvailableOrders([]);
     } finally {
       setLoading(false);
@@ -143,7 +149,7 @@ export default function DriverDashboardScreen() {
         setAvailableOrders([]);
       }
     } catch (error) {
-      console.error('Error updating status:', error);
+      useFeedbackStore.getState().showFriendlyError(error);
       setOnlineStatus(!newStatus); // Revert on error
     }
   };
@@ -154,7 +160,7 @@ export default function DriverDashboardScreen() {
       removeOrderAlert(orderId, true);
       router.push(`/(driver)/orders/${orderId}`);
     } catch (error) {
-      console.error('Error accepting order:', error);
+      useFeedbackStore.getState().showFriendlyError(error);
     }
   };
 

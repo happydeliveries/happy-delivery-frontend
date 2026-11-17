@@ -62,8 +62,8 @@ export default function DriverEarningsScreen() {
       const dailyData: any = await driverService.getDailyEarnings(selectedPeriod);
       const normalizedDaily = Array.isArray(dailyData) ? dailyData : dailyData?.data ?? [];
       setDailyEarnings(normalizedDaily);
-    } catch (error) {
-      console.error('Error fetching earnings:', error);
+    } catch {
+      // Quietly avoid LogBox error banner; UI renders graceful fallback
     } finally {
       setLoading(false);
     }

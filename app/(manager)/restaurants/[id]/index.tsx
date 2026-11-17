@@ -29,8 +29,8 @@ export default function RestaurantDashboardScreen() {
       const resolved = response?.data?.id ? response.data : (response?.data?.data || response);
       setRestaurant(resolved);
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Could not load restaurant details');
+      const { useFeedbackStore } = await import('../../../../store/feedbackStore');
+      useFeedbackStore.getState().showFriendlyError(error);
     } finally {
       setLoading(false);
     }

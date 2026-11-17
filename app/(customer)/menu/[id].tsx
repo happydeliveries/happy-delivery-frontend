@@ -24,6 +24,7 @@ import {
 import { colors } from '../../../constants/colors';
 import { restaurantService } from '../../../services/restaurant';
 import { useCartStore } from '../../../store/cartStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
 import { normalizeItemCategories } from '../../../utils/menuCategories';
 
 type MenuItemType = {
@@ -129,8 +130,7 @@ export default function MenuItemDetailScreen() {
           : undefined,
       });
     } catch (error) {
-      console.error('Error fetching menu item details:', error);
-      Alert.alert('Error', 'Failed to load menu item details');
+      useFeedbackStore.getState().showFriendlyError(error);
     } finally {
       setLoading(false);
     }
@@ -140,8 +140,8 @@ export default function MenuItemDetailScreen() {
     try {
       const response = await restaurantService.getRestaurant(restaurantId);
       setRestaurant((response as any)?.restaurant ?? (response as any)?.data ?? response);
-    } catch (error) {
-      console.error('Error fetching restaurant details:', error);
+    } catch {
+      // Quietly handle optional restaurant metadata errors
     }
   };
 

@@ -12,6 +12,7 @@ import Button from '../../../components/common/Button';
 import { managerService } from '../../../services/manager';
 import { colors } from '../../../constants/colors';
 import api from '../../../services/api';
+import { useFeedbackStore } from '../../../store/feedbackStore';
 
 export default function CreateRestaurantScreen() {
   const router = useRouter();
@@ -83,8 +84,7 @@ export default function CreateRestaurantScreen() {
             throw new Error('No URL returned from server');
         }
     } catch (error) {
-        console.error('Upload error:', error);
-        Alert.alert('Upload Failed', 'Could not save image to cloud storage.');
+        useFeedbackStore.getState().showFriendlyError(error);
     } finally {
         isLogo ? setUploadingLogo(false) : setUploadingCover(false);
     }
@@ -120,8 +120,7 @@ export default function CreateRestaurantScreen() {
         { text: 'OK', onPress: () => router.replace('/(manager)/restaurants') }
       ]);
     } catch (error: any) {
-      console.error('Create restaurant error:', error);
-      Alert.alert('Error', error.response?.data?.error || 'Failed to establish restaurant.');
+      useFeedbackStore.getState().showFriendlyError(error);
     } finally {
       setLoading(false);
     }

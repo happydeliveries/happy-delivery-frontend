@@ -55,7 +55,9 @@ export default function MyRestaurantsScreen() {
       setRestaurants(Array.isArray(actualData) ? actualData : []);
       
     } catch (error) {
-      console.error('Error fetching restaurants:', error);
+      const { useFeedbackStore } = await import('../../../store/feedbackStore');
+      const { getFriendlyErrorMessage } = await import('../../../utils/errorMessages');
+      useFeedbackStore.getState().showToast({ type: 'warning', message: getFriendlyErrorMessage(error) });
     } finally {
       setLoading(false);
       setRefreshing(false);

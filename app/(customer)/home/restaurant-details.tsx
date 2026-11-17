@@ -95,8 +95,8 @@ export default function RestaurantDetailsScreen() {
       const response = await restaurantService.getRestaurant(id);
       // API interceptor returns response.data directly
       setRestaurant((response as any).restaurant ?? (response as any).data ?? response);
-    } catch (error) {
-      console.error('Error fetching restaurant:', error);
+    } catch {
+      // Quietly avoid scary LogBox overlay; screen renders graceful fallback
     }
   };
 
@@ -140,8 +140,8 @@ export default function RestaurantDetailsScreen() {
         });
       }
       setMenuItems(allItems);
-    } catch (error) {
-      console.error('Error fetching menu items:', error);
+    } catch {
+      // Menu empty state handles load issues gracefully without red error banners
     } finally {
       setLoading(false);
     }

@@ -26,8 +26,8 @@ export default function ManagerProfileScreen() {
       setLoading(true);
       const response = await managerService.getProfile();
       setProfile(response.data || response);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
+    } catch {
+      // Quietly avoid scary LogBox overlay on profile load glitch
     } finally {
       setLoading(false);
     }

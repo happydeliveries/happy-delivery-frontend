@@ -1,6 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG } from '../constants/api';
+import { getFriendlyError } from '../utils/errorMessages';
 
 const api = axios.create({
   baseURL: API_CONFIG.API_URL,
@@ -25,11 +26,11 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle errors
+// Response interceptor to handle errors cleanly without triggering Expo LogBox
 api.interceptors.response.use(
   (response) => response.data,
   async (error) => {
-    let errorMessage = 'Something went wrong';
+    let rawMessage = 'Something went wrong';
 
     if (error.response?.status === 401) {
       await AsyncStorage.removeItem('token');
@@ -37,22 +38,36 @@ api.interceptors.response.use(
     }
 
     if (error.response) {
-      // Server responded with an error (e.g., 400, 500, 503)
-      errorMessage = error.response.data?.error || error.response.data?.message || errorMessage;
+      rawMessage = error.response.data?.error || error.response.data?.message || rawMessage;
     } else if (error.request) {
-      // Request was made but no response was received (Server is down, timeout, or ECONNRESET)
-      errorMessage = 'Network error: Cannot reach the server';
-    } else {
-      errorMessage = error.message;
+      rawMessage = 'Network error: Cannot reach the server';
+    } else if (error?.message) {
+      rawMessage = error.message;
     }
 
-    console.error(`[API ERROR] ${error.config?.method?.toUpperCase()} ${error.config?.baseURL}${error.config?.url}:`, errorMessage);
+    const friendly = getFriendlyError({
+      status: error.response?.status,
+      url: error.config?.url,
+      rawMessage,
+      message: rawMessage,
+      response: error.response,
+    });
+
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(
+        `[API Notice] ${error.config?.method?.toUpperCase() || 'REQ'} ${error.config?.url || ''}: ${rawMessage}`
+      );
+    }
+
     if (error && typeof error === 'object') {
-      error.message = errorMessage;
-      error.toString = () => errorMessage;
+      error.rawMessage = rawMessage;
+      error.friendlyTitle = friendly.title;
+      error.friendlyMessage = friendly.message;
+      error.message = friendly.message;
+      error.toString = () => friendly.message;
       return Promise.reject(error);
     }
-    return Promise.reject(errorMessage);
+    return Promise.reject(friendly.message);
   }
 );
 

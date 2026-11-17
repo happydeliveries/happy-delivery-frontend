@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
+import { useFeedbackStore } from '../../store/feedbackStore';
+import { getFriendlyErrorMessage } from '../../utils/errorMessages';
 
 // ─── Palette (same as Welcome) ──────────────────────────────────────────────
 const BG = '#FFFBF2';
@@ -295,8 +297,8 @@ export default function RegisterScreen() {
       await register(registrationData);
       // Navigation after success is handled in the useAuth hook
     } catch (err: any) {
-      console.error('Registration error:', err);
-      const message: string = err?.message || 'Something went wrong. Please try again.';
+      useFeedbackStore.getState().showFriendlyError(err, { context: 'register' });
+      const message: string = getFriendlyErrorMessage(err, 'register');
 
       // Surface "email already registered" next to the email field
       if (/email/i.test(message) && /(exist|taken|already|registered|in use)/i.test(message)) {

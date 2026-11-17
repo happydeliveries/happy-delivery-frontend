@@ -18,6 +18,10 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 // Services & Hooks
 import { restaurantService } from '../../../services/restaurant';
 import { useLocation } from '../../../hooks/useLocation';
+import { useAddressStore, resolveEffectiveDiscoveryLocation } from '../../../store/addressStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
+import { getFriendlyErrorMessage } from '../../../utils/errorMessages';
+import AddressPickerModal from '../../../components/customer/AddressPickerModal';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 48) / 2;
@@ -72,13 +76,26 @@ const THEME = {
 export default function SearchScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ query?: string; category?: string }>();
-  const { location } = useLocation();
+  const { location, locationStatus } = useLocation();
+  const addressMode = useAddressStore((s) => s.mode);
+  const selectedAddress = useAddressStore((s) => s.selectedAddress);
+  const savedAddresses = useAddressStore((s) => s.savedAddresses);
+  const showToast = useFeedbackStore((s) => s.showToast);
   const reqIdRef = useRef(0);
 
   // State
   const [query, setQuery] = useState(params.query || params.category || '');
   const [activeTab, setActiveTab] = useState<'all' | 'restaurants' | 'food'>('all');
   const [loading, setLoading] = useState(false);
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
+
+  const effectiveLocation = resolveEffectiveDiscoveryLocation({
+    mode: addressMode,
+    selectedAddress,
+    savedAddresses,
+    gpsCoords: location?.coords || null,
+    gpsStatus: locationStatus,
+  });
 
   // Data
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -109,16 +126,12 @@ export default function SearchScreen() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [query, filters, location]);
+  }, [query, filters, effectiveLocation.latitude, effectiveLocation.longitude]);
 
-  const getEffectiveCoords = () => {
-    const lat = location?.coords.latitude;
-    const lng = location?.coords.longitude;
-    if (lat == null || lng == null || lat > 0 || lng < 10 || lng > 40) {
-      return { lat: -26.2041, lng: 28.0473 };
-    }
-    return { lat, lng };
-  };
+  const getEffectiveCoords = () => ({
+    lat: effectiveLocation.latitude,
+    lng: effectiveLocation.longitude,
+  });
 
   const applyFoodFilters = (items: FoodItem[]) => {
     let filtered = Array.isArray(items) ? items : [];
@@ -191,7 +204,10 @@ export default function SearchScreen() {
       setRestaurants(restData);
       setFoodItems(applyFoodFilters(rawFood));
     } catch (error) {
-      console.error('Search error:', error);
+      showToast({
+        type: 'warning',
+        message: getFriendlyErrorMessage(error, 'general'),
+      });
     } finally {
       if (reqIdRef.current === myReqId) {
         setLoading(false);
@@ -228,7 +244,10 @@ export default function SearchScreen() {
       setRestaurants(data);
       setFoodItems(applyFoodFilters(rawFood));
     } catch (error) {
-      console.error('Error fetching nearby restaurants:', error);
+      showToast({
+        type: 'warning',
+        message: getFriendlyErrorMessage(error, 'general'),
+      });
     } finally {
       if (reqIdRef.current === myReqId) {
         setLoading(false);
@@ -358,6 +377,18 @@ export default function SearchScreen() {
 
       {/* 1. Header Search Area */}
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.areaPill}
+          onPress={() => setAddressModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="location-sharp" size={14} color={THEME.primary} />
+          <Text style={styles.areaPillText} numberOfLines={1}>
+            Searching near: <Text style={{ fontWeight: '700' }}>{effectiveLocation.label}</Text>
+            {effectiveLocation.subtitle ? ` (${effectiveLocation.subtitle})` : ''}
+          </Text>
+          <Ionicons name="chevron-down" size={14} color={THEME.subText} />
+        </TouchableOpacity>
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color={THEME.subText} />
           <TextInput
@@ -452,6 +483,11 @@ export default function SearchScreen() {
           )}
         </ScrollView>
       )}
+
+      <AddressPickerModal
+        visible={addressModalVisible}
+        onClose={() => setAddressModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -462,6 +498,21 @@ const styles = StyleSheet.create({
 
   // Header
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, backgroundColor: '#fff' },
+  areaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#FFF7ED',
+    marginBottom: 8,
+  },
+  areaPillText: {
+    flex: 1,
+    fontSize: 12,
+    color: THEME.text,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -68,8 +68,8 @@ export default function DriverOrdersScreen() {
       syncAvailableOrders(nextAvailable);
       setMyOrders(Array.isArray(myOrdersData.data) ? myOrdersData.data : []);
       hasLoadedRef.current = true;
-    } catch (error) {
-      console.error('Error fetching data:', error);
+    } catch {
+      // Avoid triggering scary red LogBox overlay on transient connection errors
     } finally {
       setLoading(false);
       setRefreshing(false);

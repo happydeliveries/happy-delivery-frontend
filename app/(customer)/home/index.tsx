@@ -29,6 +29,10 @@ import { useSocket } from '../../../hooks/useSocket';
 import { restaurantService } from '../../../services/restaurant';
 import { orderService } from '../../../services/order';
 import { APP_CONFIG } from '../../../constants/config';
+import { useAddressStore, resolveEffectiveDiscoveryLocation } from '../../../store/addressStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
+import { getFriendlyErrorMessage } from '../../../utils/errorMessages';
+import AddressPickerModal from '../../../components/customer/AddressPickerModal';
 
 // --- THEME ---
 const THEME = {
@@ -55,8 +59,8 @@ const CUBE_SIZE = 136;
 const RESTAURANT_CARD_HEIGHT = 320;
 
 // --- FIXED HEADER CONSTANTS ---
-const HEADER_EXPANDED_HEIGHT = Platform.OS === 'ios' ? 120 : 140;
-const HEADER_COLLAPSED_HEIGHT = Platform.OS === 'ios' ? 90 : 110;
+const HEADER_EXPANDED_HEIGHT = Platform.OS === 'ios' ? 158 : 172;
+const HEADER_COLLAPSED_HEIGHT = Platform.OS === 'ios' ? 126 : 140;
 
 const ACTIVE_ORDER_STATUSES = [
   'pending',
@@ -164,9 +168,13 @@ const restaurantMatchesCategory = (
 
 export default function CustomerHomeScreen() {
   const router = useRouter();
-  const { location } = useLocation();
+  const { location, locationStatus } = useLocation();
   const { user } = useAuth();
   const socket = useSocket();
+  const addressMode = useAddressStore((s) => s.mode);
+  const selectedAddress = useAddressStore((s) => s.selectedAddress);
+  const savedAddresses = useAddressStore((s) => s.savedAddresses);
+  const showToast = useFeedbackStore((s) => s.showToast);
 
   // --- State ---
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -179,6 +187,7 @@ export default function CustomerHomeScreen() {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [activeOrder, setActiveOrder] = useState<any | null>(null);
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
+  const [addressPickerVisible, setAddressPickerVisible] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -201,16 +210,22 @@ export default function CustomerHomeScreen() {
     extrapolate: 'clamp',
   });
 
-  const getSearchCoords = useCallback(() => {
-    let lat = location?.coords.latitude;
-    let lng = location?.coords.longitude;
-    // Use real GPS if within South Africa region; fallback to Johannesburg for emulators
-    if (lat == null || lng == null || lat > 0 || lng < 10 || lng > 40) {
-      lat = -26.2041;
-      lng = 28.0473;
-    }
-    return { lat, lng };
-  }, [location?.coords.latitude, location?.coords.longitude]);
+  const effectiveLocation = useMemo(
+    () =>
+      resolveEffectiveDiscoveryLocation({
+        mode: addressMode,
+        selectedAddress,
+        savedAddresses,
+        gpsCoords: location?.coords || null,
+        gpsStatus: locationStatus,
+      }),
+    [addressMode, selectedAddress, savedAddresses, location?.coords, locationStatus]
+  );
+
+  const getSearchCoords = useCallback(
+    () => ({ lat: effectiveLocation.latitude, lng: effectiveLocation.longitude }),
+    [effectiveLocation.latitude, effectiveLocation.longitude]
+  );
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -400,12 +415,20 @@ export default function CustomerHomeScreen() {
         setActiveOrder(null);
       }
     } catch (error) {
-      console.error('[DATA FETCH] Critical Error:', error);
+      showToast({
+        type: 'warning',
+        message: getFriendlyErrorMessage(error, 'general'),
+        actionLabel: 'Retry',
+        onAction: () => {
+          setRefreshing(true);
+          fetchAllData();
+        },
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getSearchCoords, user]);
+  }, [getSearchCoords, user, showToast]);
 
   useEffect(() => {
     loadFavorites();
@@ -416,10 +439,10 @@ export default function CustomerHomeScreen() {
   }, [fetchAllData, loadFavorites]);
 
   useEffect(() => {
-    if (location && fetchedRef.current) {
+    if (fetchedRef.current) {
       fetchAllData();
     }
-  }, [location?.coords.latitude, location?.coords.longitude]);
+  }, [effectiveLocation.latitude, effectiveLocation.longitude]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1061,6 +1084,26 @@ export default function CustomerHomeScreen() {
               )}
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={styles.addressSelectorPill}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setAddressPickerVisible(true);
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={effectiveLocation.source === 'selected' ? 'bookmark' : 'location-sharp'}
+              size={15}
+              color={THEME.primaryAccent}
+            />
+            <Text style={styles.addressSelectorLabel} numberOfLines={1}>
+              {effectiveLocation.label}
+              {effectiveLocation.subtitle ? ` · ${effectiveLocation.subtitle}` : ''}
+            </Text>
+            <Feather name="chevron-down" size={15} color={THEME.secondary} />
+          </TouchableOpacity>
         </View>
       </Animated.View>
 
@@ -1370,6 +1413,14 @@ export default function CustomerHomeScreen() {
 
         <View style={styles.bottomSpacer} />
       </Animated.ScrollView>
+
+      <AddressPickerModal
+        visible={addressPickerVisible}
+        onClose={() => setAddressPickerVisible(false)}
+        onAddressApplied={() => {
+          setSelectedCategory(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1477,6 +1528,26 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     marginLeft: 16,
+  },
+  addressSelectorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F1E6D6',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+    maxWidth: '100%',
+  },
+  addressSelectorLabel: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: THEME.secondary,
+    flexShrink: 1,
   },
   avatar: {
     width: 44,

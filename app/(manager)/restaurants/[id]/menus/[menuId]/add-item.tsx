@@ -9,6 +9,7 @@ import Input from '../../../../../../components/common/Input';
 import Button from '../../../../../../components/common/Button';
 import CategoryMultiSelect, { CategoryMultiSelectHandle } from '../../../../../../components/manager/CategoryMultiSelect';
 import { normalizeItemCategories } from '../../../../../../utils/menuCategories';
+import { useFeedbackStore } from '../../../../../../store/feedbackStore';
 import { managerService } from '../../../../../../services/manager'; //
 import api from '../../../../../../services/api'; // Keeping API for direct upload utility
 import { colors } from '../../../../../../constants/colors';
@@ -126,8 +127,7 @@ export default function AddMenuItemScreen() {
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error: any) {
-      console.error('Add Item Error:', error);
-      Alert.alert('Error', error.response?.data?.error || 'Failed to add item to menu.');
+      useFeedbackStore.getState().showFriendlyError(error);
     } finally {
       setLoading(false);
     }

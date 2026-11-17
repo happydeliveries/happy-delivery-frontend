@@ -135,8 +135,8 @@ export default function OrderDetailsScreen() {
           setPaystackModalVisible(false);
         }
       }
-    } catch (error) {
-      console.error('Error fetching order:', error);
+    } catch {
+      // Quietly avoid scary LogBox overlay; screen preserves latest loaded state
     } finally {
       setLoading(false);
     }

@@ -146,8 +146,8 @@ export default function DriverOrderDetailsScreen() {
       const response: any = await driverService.getOrder(id);
       setOrder(response.data || response);
     } catch (error) {
-      console.error('Fetch order error:', error);
-      Alert.alert('Error', 'Failed to load order details');
+      const { showFriendlyError } = (await import('../../../store/feedbackStore')).useFeedbackStore.getState();
+      showFriendlyError(error);
     } finally {
       setLoading(false);
     }

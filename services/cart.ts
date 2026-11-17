@@ -13,8 +13,7 @@ export const cartService = {
         JSON.stringify(cart)
       );
       return { success: true };
-    } catch (error) {
-      console.error('Error syncing cart:', error);
+    } catch {
       return { success: false, error: 'Failed to sync cart' };
     }
   },
@@ -26,8 +25,7 @@ export const cartService = {
         `${STORAGE_KEYS.CART_DATA}_${userId}`
       );
       return cartData ? JSON.parse(cartData) : null;
-    } catch (error) {
-      console.error('Error getting cart:', error);
+    } catch {
       return null;
     }
   },
@@ -37,8 +35,7 @@ export const cartService = {
     try {
       await AsyncStorage.removeItem(`${STORAGE_KEYS.CART_DATA}_${userId}`);
       return { success: true };
-    } catch (error) {
-      console.error('Error clearing cart:', error);
+    } catch {
       return { success: false, error: 'Failed to clear cart' };
     }
   },

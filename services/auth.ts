@@ -55,6 +55,19 @@ export const authService = {
     return api.delete(`/users/addresses/${encodeURIComponent(addressId)}`);
   },
 
+  async setDefaultAddress(addressId: string) {
+    return api.patch(`/users/addresses/${encodeURIComponent(addressId)}/default`);
+  },
+
+  async geocodeAddress(address: {
+    street?: string;
+    city?: string;
+    postal_code?: string;
+    formattedAddress?: string;
+  }) {
+    return api.post('/restaurants/geocode-address', address);
+  },
+
   async logout() {
     await AsyncStorage.removeItem('token');
     await AsyncStorage.removeItem('user');
@@ -68,4 +81,6 @@ export const userService = {
   getAddresses: authService.getAddresses,
   addAddress: authService.addAddress,
   removeAddress: authService.removeAddress,
+  setDefaultAddress: authService.setDefaultAddress,
+  geocodeAddress: authService.geocodeAddress,
 };

@@ -20,6 +20,8 @@ import { orderService } from '../../../services/order';
 import { authService, userService } from '../../../services/auth';
 import { useAuth } from '../../../hooks/useAuth';
 import { useLocation } from '../../../hooks/useLocation';
+import { useAddressStore, formatAddressSummary } from '../../../store/addressStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
 import { colors } from '../../../constants/colors';
 import { getDeliveryTierLabel } from '../../../constants/deliveryPricing';
 
@@ -70,7 +72,12 @@ export default function CheckoutScreen() {
   const pathname = usePathname();
   const isCheckoutFocused = pathname.includes('checkout');
   const { user } = useAuth();
-  const { location, getCurrentLocation, getAddressDetailsFromCoords } = useLocation();
+  const { location, getCurrentLocation, getAddressDetailsFromCoords, openLocationSettings } = useLocation();
+  const activeAddressMode = useAddressStore((s) => s.mode);
+  const activeSelectedAddress = useAddressStore((s) => s.selectedAddress);
+  const syncSavedAddresses = useAddressStore((s) => s.syncSavedAddresses);
+  const showPopup = useFeedbackStore((s) => s.showPopup);
+  const showFriendlyError = useFeedbackStore((s) => s.showFriendlyError);
   const {
     items,
     total,
@@ -260,7 +267,12 @@ export default function CheckoutScreen() {
   ]);
 
   // Load saved delivery addresses & preferred payment method when signed in
+  // Respect an explicitly picked area/address (e.g., ordering for Nelspruit from Gauteng)
   useEffect(() => {
+    if (activeAddressMode === 'address' && activeSelectedAddress) {
+      applySavedAddress(activeSelectedAddress);
+    }
+
     if (!user) return;
     authService
       .getCurrentUser()
@@ -271,18 +283,18 @@ export default function CheckoutScreen() {
         }
       })
       .catch(() => {});
-    userService
-      .getAddresses()
-      .then((res: any) => {
-        const list: SavedAddress[] = Array.isArray(res) ? res : res?.data ?? [];
+    syncSavedAddresses()
+      .then((list) => {
         if (Array.isArray(list) && list.length > 0) {
           setSavedAddresses(list);
-          const def = list.find((a) => a.is_default) || list[0];
-          applySavedAddress(def);
+          if (!(activeAddressMode === 'address' && activeSelectedAddress)) {
+            const def = list.find((a) => a.is_default) || list[0];
+            applySavedAddress(def);
+          }
         }
       })
       .catch(() => {});
-  }, [user?.id]);
+  }, [user?.id, activeAddressMode, activeSelectedAddress, syncSavedAddresses]);
 
   // Redirect to cart if hydrated and cart is empty (unless order was just submitted)
   useEffect(() => {
@@ -319,7 +331,15 @@ export default function CheckoutScreen() {
       const current = await getCurrentLocation();
       const coords = current?.coords || location?.coords;
       if (!coords) {
-        Alert.alert('Location Unavailable', 'Could not determine your GPS coordinates. Please type your address manually.');
+        showPopup({
+          type: 'warning',
+          title: 'Device Location Is Off',
+          message:
+            'Turn on Location Services in Settings or select one of your saved addresses below.',
+          primaryLabel: 'Open Settings',
+          onPrimary: openLocationSettings,
+          secondaryLabel: 'Enter Manually',
+        });
         return;
       }
       const geo = await getAddressDetailsFromCoords(coords.latitude, coords.longitude);
@@ -334,7 +354,11 @@ export default function CheckoutScreen() {
         longitude: coords.longitude,
       }));
     } catch {
-      Alert.alert('Location Error', 'Failed to look up your current street address.');
+      showPopup({
+        type: 'info',
+        title: 'Enter Street Address',
+        message: 'Could not detect street details automatically. Please type your delivery address below.',
+      });
     } finally {
       setLocating(false);
     }
@@ -488,12 +512,7 @@ export default function CheckoutScreen() {
       }
 
     } catch (error: any) {
-      console.error('Checkout Error:', error);
-      const errorMessage =
-        typeof error === 'string'
-          ? error
-          : error?.response?.data?.error || error?.message || 'Could not place order. Please try again.';
-      Alert.alert('Order Failed', errorMessage);
+      showFriendlyError(error, { context: 'checkout' });
     } finally {
       setLoading(false);
     }

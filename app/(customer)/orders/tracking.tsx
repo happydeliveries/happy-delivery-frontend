@@ -202,10 +202,8 @@ export default function TrackingScreen() {
           setDriverLocation(dCoords);
           setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         }
-      } catch (error) {
-        if (!silent) {
-          console.error('Tracking error:', error);
-        }
+      } catch {
+        // Avoid triggering scary LogBox banners during live location polling
       } finally {
         if (!silent) {
           setLoading(false);

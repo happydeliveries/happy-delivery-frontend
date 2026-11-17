@@ -8,13 +8,14 @@ import {
   Platform,
   ScrollView,
   Linking,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router } from 'expo-router';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { useAuth } from '../../hooks/useAuth';
+import { useFeedbackStore } from '../../store/feedbackStore';
+import { getFriendlyErrorMessage } from '../../utils/errorMessages';
 import { colors } from '../../constants/colors';
 import { API_CONFIG } from '../../constants/api';
 
@@ -25,10 +26,17 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   
   const { login } = useAuth();
+  const showPopup = useFeedbackStore((s) => s.showPopup);
+  const showFriendlyError = useFeedbackStore((s) => s.showFriendlyError);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      setError('Please fill in all fields');
+    if (!email.trim() || !password) {
+      setError('Please enter both your email address and password.');
+      showPopup({
+        type: 'info',
+        title: 'Almost Ready',
+        message: 'Please enter both your email address and password to sign in.',
+      });
       return;
     }
 
@@ -36,11 +44,12 @@ export default function LoginScreen() {
     setError('');
 
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       // Navigation is handled in useAuth hook
     } catch (err: any) {
-      const msg = typeof err === 'string' ? err : err?.message || 'Login failed. Please try again.';
-      setError(msg);
+      const friendlyMsg = getFriendlyErrorMessage(err, 'login');
+      setError(friendlyMsg);
+      showFriendlyError(err, { context: 'login' });
     } finally {
       setLoading(false);
     }
@@ -90,10 +99,12 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={styles.forgotPassword}
               onPress={() =>
-                Alert.alert(
-                  'Reset Password',
-                  'Please email support@happydeliveries.co.za from your registered email address so our support team can reset your password.'
-                )
+                showPopup({
+                  type: 'info',
+                  title: 'Reset Password',
+                  message:
+                    'Please email support@happydeliveries.co.za from your registered email address so our support team can reset your password.',
+                })
               }
             >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
@@ -172,14 +183,16 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   errorContainer: {
-    backgroundColor: '#ffebee',
-    padding: 15,
-    borderRadius: 10,
+    backgroundColor: '#FFF7ED',
+    padding: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ffcdd2',
+    borderColor: '#FED7AA',
   },
   errorText: {
-    color: '#d32f2f',
+    color: '#9A3412',
+    fontSize: 13.5,
+    fontWeight: '500',
     textAlign: 'center',
   },
   forgotPassword: {

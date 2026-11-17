@@ -67,7 +67,9 @@ export default function ManagerDashboardScreen() {
       setRestaurants(restaurantsRes?.data || (Array.isArray(restaurantsRes) ? restaurantsRes : []));
       hasLoadedRef.current = true;
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      const { useFeedbackStore } = await import('../../../store/feedbackStore');
+      const { getFriendlyErrorMessage } = await import('../../../utils/errorMessages');
+      useFeedbackStore.getState().showToast({ type: 'warning', message: getFriendlyErrorMessage(error) });
       setRecentOrders([]);
       setRestaurants([]);
     } finally {

@@ -25,6 +25,8 @@ import { APP_CONFIG } from '../../../constants/config';
 import { useAuth } from '../../../hooks/useAuth';
 import { useLocation } from '../../../hooks/useLocation';
 import { authService, userService } from '../../../services/auth';
+import { useAddressStore, formatAddressSummary, DeliveryAddressItem } from '../../../store/addressStore';
+import { useFeedbackStore } from '../../../store/feedbackStore';
 
 type SavedAddress = {
   id?: string;
@@ -62,7 +64,18 @@ type ProfileMenuSection = {
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, updateUser } = useAuth();
-  const { getCurrentLocation, getAddressDetailsFromCoords } = useLocation();
+  const { getCurrentLocation, getAddressDetailsFromCoords, openLocationSettings } = useLocation();
+  const mode = useAddressStore((s) => s.mode);
+  const selectedAddress = useAddressStore((s) => s.selectedAddress);
+  const storeSavedAddresses = useAddressStore((s) => s.savedAddresses);
+  const syncSavedAddresses = useAddressStore((s) => s.syncSavedAddresses);
+  const saveNewAddressToStore = useAddressStore((s) => s.saveNewAddress);
+  const selectAddressInStore = useAddressStore((s) => s.selectAddress);
+  const removeSavedAddressFromStore = useAddressStore((s) => s.removeSavedAddress);
+  const setDefaultSavedAddressInStore = useAddressStore((s) => s.setDefaultSavedAddress);
+  const showPopup = useFeedbackStore((s) => s.showPopup);
+  const showToast = useFeedbackStore((s) => s.showToast);
+  const showFriendlyError = useFeedbackStore((s) => s.showFriendlyError);
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(true);
@@ -194,11 +207,10 @@ export default function ProfileScreen() {
       setActiveModal('addresses');
       setLoadingAddresses(true);
       try {
-        const res: any = await userService.getAddresses();
-        const list = Array.isArray(res) ? res : res?.data ?? [];
-        setAddresses(Array.isArray(list) ? list : []);
+        const list = await syncSavedAddresses();
+        setAddresses(list);
       } catch {
-        // keep cached list
+        setAddresses(storeSavedAddresses);
       } finally {
         setLoadingAddresses(false);
       }
@@ -210,7 +222,15 @@ export default function ProfileScreen() {
     try {
       const current = await getCurrentLocation();
       if (!current?.coords) {
-        Alert.alert('Location Unavailable', 'Could not read GPS coordinates.');
+        showPopup({
+          type: 'warning',
+          title: 'Device Location Is Off',
+          message:
+            'Please turn on device location to auto-fill, or simply type the street and town below.',
+          primaryLabel: 'Open Settings',
+          onPrimary: openLocationSettings,
+          secondaryLabel: 'Type Manually',
+        });
         return;
       }
       const geo = await getAddressDetailsFromCoords(current.coords.latitude, current.coords.longitude);
@@ -220,7 +240,11 @@ export default function ProfileScreen() {
         setNewPostalCode(geo.postalCode || '');
       }
     } catch {
-      Alert.alert('Location Error', 'Could not resolve street address from GPS.');
+      showPopup({
+        type: 'info',
+        title: 'Enter Address Manually',
+        message: 'We could not read GPS details right now. Please type the street and city below.',
+      });
     } finally {
       setLocatingAddress(false);
     }
@@ -228,37 +252,73 @@ export default function ProfileScreen() {
 
   const handleAddAddress = async () => {
     if (!newStreet.trim() || !newCity.trim()) {
-      Alert.alert('Missing Details', 'Please enter a street address and city.');
+      showPopup({
+        type: 'info',
+        title: 'Missing Details',
+        message: 'Please enter both a street address and a city/town.',
+      });
       return;
     }
     setSavingAddress(true);
     try {
-      const res: any = await userService.addAddress({
-        label: newLabel.trim() || 'Home',
-        street: newStreet.trim(),
-        city: newCity.trim(),
-        postal_code: newPostalCode.trim(),
-        is_default: addresses.length === 0,
-      });
-      const updated = Array.isArray(res) ? res : res?.data ?? [];
-      setAddresses(updated);
+      const { list } = await saveNewAddressToStore(
+        {
+          label: newLabel.trim() || 'Home',
+          street: newStreet.trim(),
+          city: newCity.trim(),
+          postal_code: newPostalCode.trim(),
+          is_default: addresses.length === 0,
+        },
+        { selectAfterSave: false }
+      );
+      setAddresses(list);
       setNewStreet('');
       setNewCity('');
       setNewPostalCode('');
+      showToast({
+        type: 'success',
+        message: 'Address saved! Tap "Order Here" anytime to browse restaurants there.',
+      });
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error || err?.message || 'Could not save address.');
+      showFriendlyError(err);
     } finally {
       setSavingAddress(false);
     }
   };
 
+  const handleUseAddressForOrdering = async (addr: DeliveryAddressItem) => {
+    const resolved = await selectAddressInStore(addr);
+    if (!resolved) {
+      showPopup({
+        type: 'warning',
+        title: "Couldn't Locate Address",
+        message: 'Please make sure this saved address has a valid South African street and town.',
+      });
+      return;
+    }
+    setActiveModal(null);
+    showToast({
+      type: 'success',
+      message: `Now browsing restaurants near ${resolved.label || resolved.city || resolved.street}`,
+    });
+  };
+
+  const handleSetDefaultAddress = async (identifier: string) => {
+    try {
+      const updated = await setDefaultSavedAddressInStore(identifier);
+      setAddresses(updated);
+      showToast({ type: 'success', message: 'Default delivery address updated' });
+    } catch (err) {
+      showFriendlyError(err);
+    }
+  };
+
   const handleRemoveAddress = async (identifier: string) => {
     try {
-      const res: any = await userService.removeAddress(identifier);
-      const updated = Array.isArray(res) ? res : res?.data ?? [];
+      const updated = await removeSavedAddressFromStore(identifier);
       setAddresses(updated);
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not delete address.');
+      showFriendlyError(err);
     }
   };
 
@@ -268,9 +328,9 @@ export default function ProfileScreen() {
     try {
       await userService.updateRoleProfile({ default_payment_method: method });
       setActiveModal(null);
-      Alert.alert('Saved', 'Default payment preference updated.');
+      showToast({ type: 'success', message: 'Default payment preference updated.' });
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not update payment preference.');
+      showFriendlyError(err);
     } finally {
       setSavingPayment(false);
     }
@@ -280,8 +340,8 @@ export default function ProfileScreen() {
     try {
       await logout();
       router.replace('/(auth)/welcome');
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch {
+      router.replace('/(auth)/welcome');
     }
   };
 
@@ -556,9 +616,16 @@ export default function ProfileScreen() {
               ) : addresses.length > 0 ? (
                 addresses.map((addr, idx) => {
                   const keyId = addr.id || String(idx);
+                  const isActiveBrowsing =
+                    mode === 'address' &&
+                    selectedAddress &&
+                    ((addr.id && selectedAddress.id === addr.id) ||
+                      formatAddressSummary(selectedAddress) ===
+                        formatAddressSummary(addr as DeliveryAddressItem));
+
                   return (
                     <View key={keyId} style={styles.savedAddrRow}>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
                         <Text style={styles.savedAddrLabel}>
                           {addr.label || 'Saved'} {addr.is_default ? '(Default)' : ''}
                         </Text>
@@ -566,6 +633,34 @@ export default function ProfileScreen() {
                           {addr.street || addr.address}
                           {addr.city ? `, ${addr.city}` : ''}
                         </Text>
+                        <View style={styles.addrActionsRow}>
+                          <TouchableOpacity
+                            style={[styles.addrPillBtn, isActiveBrowsing && styles.addrPillBtnActive]}
+                            onPress={() =>
+                              handleUseAddressForOrdering({
+                                ...(addr as DeliveryAddressItem),
+                                street: addr.street || addr.address || '',
+                              })
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.addrPillBtnText,
+                                isActiveBrowsing && styles.addrPillBtnTextActive,
+                              ]}
+                            >
+                              {isActiveBrowsing ? '✓ Browsing Here' : 'Order Here'}
+                            </Text>
+                          </TouchableOpacity>
+                          {!addr.is_default && addr.id && (
+                            <TouchableOpacity
+                              style={styles.addrPillBtn}
+                              onPress={() => handleSetDefaultAddress(addr.id!)}
+                            >
+                              <Text style={styles.addrPillBtnText}>Set Default</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       </View>
                       <TouchableOpacity onPress={() => handleRemoveAddress(keyId)}>
                         <Ionicons name="trash-outline" size={20} color={colors.error} />
@@ -986,6 +1081,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  addrActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  addrPillBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  addrPillBtnActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF3E8',
+  },
+  addrPillBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  addrPillBtnTextActive: {
+    color: colors.primary,
+    fontWeight: '700',
   },
   emptyAddressText: {
     fontSize: 13.5,

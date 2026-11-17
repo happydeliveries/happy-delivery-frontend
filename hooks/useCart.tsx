@@ -70,8 +70,8 @@ export const useCart = () => {
         parsedCart.last_updated = new Date(parsedCart.last_updated);
         setCart(parsedCart);
       }
-    } catch (error) {
-      console.error('Error loading cart:', error);
+    } catch {
+      // Ignore storage read glitches
     } finally {
       setLoading(false);
     }
@@ -80,8 +80,8 @@ export const useCart = () => {
   const saveCart = async () => {
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.CART_DATA, JSON.stringify(cart));
-    } catch (error) {
-      console.error('Error saving cart:', error);
+    } catch {
+      // Ignore storage write glitches
     }
   };
 

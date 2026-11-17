@@ -48,8 +48,8 @@ export default function MenuManagementScreen() {
         setExpandedCategoryIds(new Set([menus[0].id]));
       }
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Failed to load menus');
+      const { useFeedbackStore } = await import('../../../../../store/feedbackStore');
+      useFeedbackStore.getState().showFriendlyError(error);
     } finally {
       setLoading(false);
     }

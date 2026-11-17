@@ -52,8 +52,8 @@ export default function OrdersScreen() {
         ? response
         : (response as any)?.orders ?? (response as any)?.data ?? [];
       setOrders(orderList);
-    } catch (error) {
-      console.error('Error fetching orders:', error);
+    } catch {
+      // Quietly avoid scary LogBox overlay on transient order list fetch failure
     } finally {
       setLoading(false);
       setRefreshing(false);
