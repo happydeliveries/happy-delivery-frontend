@@ -90,6 +90,7 @@ interface MenuItemProps {
     discounted_price?: number;
     image_url?: string;
     category: string;
+    categories?: string[];
     tags: string[];
     ingredients: any[];
     customizations: any[];

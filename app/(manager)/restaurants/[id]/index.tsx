@@ -25,8 +25,9 @@ export default function RestaurantDashboardScreen() {
       // Assuming you have a getRestaurant endpoint or reusing getMyRestaurants
       // Ideally, add getRestaurantById to managerService.
       // For now, we filter from myRestaurants or fetch specific if endpoint exists
-      const response = await api.get(`/restaurants/${id}`);
-      setRestaurant(response.data.data || response.data);
+      const response: any = await api.get(`/restaurants/${id}`);
+      const resolved = response?.data?.id ? response.data : (response?.data?.data || response);
+      setRestaurant(resolved);
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'Could not load restaurant details');
@@ -38,10 +39,8 @@ export default function RestaurantDashboardScreen() {
   const toggleStatus = async (value: boolean) => {
     setToggling(true);
     try {
-      // Assuming a PUT endpoint exists to update status
-      // If not, you'll need to add it to your backend
-      await api.put(`/restaurants/${id}`, { is_active: value });
-      setRestaurant((prev: any) => ({ ...prev, is_active: value }));
+      await api.put(`/restaurants/${id}`, { is_accepting_orders: value });
+      setRestaurant((prev: any) => ({ ...prev, is_accepting_orders: value }));
     } catch (error) {
       Alert.alert('Error', 'Failed to update status');
     } finally {
@@ -58,7 +57,7 @@ export default function RestaurantDashboardScreen() {
         {/* Cover & Header */}
         <View style={styles.coverContainer}>
           <Image 
-            source={{ uri: restaurant.cover_url || 'https://via.placeholder.com/500x200' }} 
+            source={{ uri: restaurant.cover_image_url || restaurant.cover_url || 'https://via.placeholder.com/500x200' }} 
             style={styles.coverImage} 
           />
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -68,7 +67,7 @@ export default function RestaurantDashboardScreen() {
 
         <View style={styles.headerContent}>
           <View style={styles.titleRow}>
-            <View>
+            <View style={{ flex: 1, marginRight: 12 }}>
               <Text style={styles.name}>{restaurant.name}</Text>
               <Text style={styles.subtitle}>{restaurant.address}</Text>
             </View>
@@ -84,7 +83,7 @@ export default function RestaurantDashboardScreen() {
               <Text style={styles.statusSub}>Turn off to pause incoming orders</Text>
             </View>
             <Switch
-              value={restaurant.is_active}
+              value={Boolean(restaurant.is_accepting_orders ?? restaurant.is_active)}
               onValueChange={toggleStatus}
               trackColor={{ false: colors.gray300, true: colors.success }}
               disabled={toggling}
@@ -113,7 +112,10 @@ export default function RestaurantDashboardScreen() {
             <Text style={styles.cardDesc}>View past & current orders</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Coming Soon', 'Edit details')}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push(`/(manager)/restaurants/${id}/edit`)}
+          >
             <View style={[styles.iconBox, { backgroundColor: '#FFF3E0' }]}>
               <MaterialIcons name="edit" size={24} color="#EF6C00" />
             </View>

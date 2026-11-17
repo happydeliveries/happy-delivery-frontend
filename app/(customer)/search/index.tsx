@@ -47,6 +47,7 @@ type FoodItem = {
   restaurant_id: string;
   is_veg: boolean;
   category?: string;
+  categories?: string[];
 };
 
 const normalizeTags = (raw: any): string[] => {

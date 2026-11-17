@@ -17,6 +17,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '../../../../../constants/colors';
 import { managerService } from '../../../../../services/manager';
+import { normalizeItemCategories } from '../../../../../utils/menuCategories';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -102,6 +103,11 @@ export default function MenuManagementScreen() {
         
         <View style={styles.foodFooter}>
           <View style={styles.tagsContainer}>
+            {normalizeItemCategories(item.categories, item.category, []).slice(0, 3).map((cat) => (
+              <View key={cat} style={styles.badgeCategory}>
+                <Text style={styles.badgeTextCategory}>{cat}</Text>
+              </View>
+            ))}
             {!item.is_available && (
               <View style={styles.badgeUnavailable}>
                 <Text style={styles.badgeTextUnavailable}>Sold Out</Text>
@@ -333,7 +339,9 @@ const styles = StyleSheet.create({
   foodDesc: { fontSize: 12, color: colors.textTertiary, marginTop: 2, marginBottom: 6 },
   
   foodFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tagsContainer: { flexDirection: 'row' },
+  tagsContainer: { flexDirection: 'row', flexWrap: 'wrap', flex: 1, gap: 4 },
+  badgeCategory: { backgroundColor: colors.primary + '15', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 2 },
+  badgeTextCategory: { fontSize: 10, fontWeight: '600', color: colors.primary },
   badgeUnavailable: { backgroundColor: colors.error + '15', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 6 },
   badgeTextUnavailable: { fontSize: 10, fontWeight: 'bold', color: colors.error },
   badgeVeg: { backgroundColor: colors.success + '15', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },

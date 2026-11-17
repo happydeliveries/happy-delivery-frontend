@@ -24,6 +24,7 @@ import {
 import { colors } from '../../../constants/colors';
 import { restaurantService } from '../../../services/restaurant';
 import { useCartStore } from '../../../store/cartStore';
+import { normalizeItemCategories } from '../../../utils/menuCategories';
 
 type MenuItemType = {
   id: string;
@@ -33,6 +34,7 @@ type MenuItemType = {
   discounted_price?: number;
   image_url?: string;
   category: string;
+  categories?: string[];
   tags: string[];
   ingredients: any[];
   customizations: any[];
@@ -105,6 +107,7 @@ export default function MenuItemDetailScreen() {
     try {
       const response = await restaurantService.getMenuItemDetail(restaurantId, id);
       const data = (response as any)?.item ?? (response as any)?.data ?? response;
+      const resolvedCategories = normalizeItemCategories(data.categories, data.category || '', []);
       setMenuItem({
         id: data.id,
         name: data.name,
@@ -112,7 +115,8 @@ export default function MenuItemDetailScreen() {
         price: Number(data.price),
         discounted_price: data.discounted_price ? Number(data.discounted_price) : undefined,
         image_url: data.image_url,
-        category: data.category || '',
+        category: resolvedCategories[0] || data.category || '',
+        categories: resolvedCategories,
         tags: Array.isArray(data.tags) ? data.tags : [],
         ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
         customizations: data.customizations || [],

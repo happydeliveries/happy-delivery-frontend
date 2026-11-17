@@ -18,6 +18,7 @@ import MenuItem from '../../../components/customer/MenuItem';
 import { colors } from '../../../constants/colors';
 import { restaurantService } from '../../../services/restaurant';
 import { useCartStore } from '../../../store/cartStore';
+import { normalizeItemCategories } from '../../../utils/menuCategories';
 
 type Restaurant = {
   id: string;
@@ -46,6 +47,7 @@ type MenuItemType = {
   discounted_price?: number;
   image_url?: string;
   category: string;
+  categories?: string[];
   tags: string[];
   ingredients: any[];
   customizations: any[];
@@ -111,6 +113,10 @@ export default function RestaurantDetailsScreen() {
         menus.forEach((menu: any) => {
           if (menu.items && Array.isArray(menu.items)) {
             menu.items.forEach((item: any) => {
+              const resolvedCategories = normalizeItemCategories(
+                item.categories,
+                item.category || menu.name || 'General'
+              );
               allItems.push({
                 id: item.id,
                 name: item.name,
@@ -118,7 +124,8 @@ export default function RestaurantDetailsScreen() {
                 price: Number(item.price),
                 discounted_price: item.discounted_price ? Number(item.discounted_price) : undefined,
                 image_url: item.image_url,
-                category: item.category || menu.name || 'General',
+                category: resolvedCategories[0] || 'General',
+                categories: resolvedCategories,
                 tags: item.tags || [],
                 ingredients: item.ingredients || [],
                 customizations: item.customizations || [],
@@ -144,9 +151,12 @@ export default function RestaurantDetailsScreen() {
   const categories = useMemo(() => {
     const cats = ['All'];
     menuItems.forEach(item => {
-      if (item.category && !cats.some(c => c.toLowerCase() === item.category.toLowerCase())) {
-        cats.push(item.category);
-      }
+      const itemCats = normalizeItemCategories(item.categories, item.category, []);
+      itemCats.forEach(cat => {
+        if (!cats.some(c => c.toLowerCase() === cat.toLowerCase())) {
+          cats.push(cat);
+        }
+      });
     });
     return cats;
   }, [menuItems]);
@@ -164,9 +174,13 @@ export default function RestaurantDetailsScreen() {
 
   // --- OPTIMIZATION: Memoized Filtering ---
   const filteredItems = useMemo(() => {
-    return selectedCategory === 'All'
-      ? menuItems
-      : menuItems.filter(item => item.category.toLowerCase() === selectedCategory.toLowerCase());
+    if (selectedCategory === 'All') return menuItems;
+    const target = selectedCategory.toLowerCase();
+    return menuItems.filter(item =>
+      normalizeItemCategories(item.categories, item.category, []).some(
+        c => c.toLowerCase() === target
+      )
+    );
   }, [selectedCategory, menuItems]);
 
   // --- LOGIC: Closed & Cart Conflict Handling ---

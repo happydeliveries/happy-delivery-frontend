@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Text, TouchableOpacity, Image, ActivityIndicator, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -7,6 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 import Input from '../../../../../../../../components/common/Input';
 import Button from '../../../../../../../../components/common/Button';
+import CategoryMultiSelect, { CategoryMultiSelectHandle } from '../../../../../../../../components/manager/CategoryMultiSelect';
+import { normalizeItemCategories } from '../../../../../../../../utils/menuCategories';
 import { managerService } from '../../../../../../../../services/manager';
 import api from '../../../../../../../../services/api';
 import { colors } from '../../../../../../../../constants/colors';
@@ -14,10 +16,13 @@ import { colors } from '../../../../../../../../constants/colors';
 export default function EditMenuItemScreen() {
   const { id, menuId, itemId } = useLocalSearchParams<{ id: string, menuId: string, itemId: string }>();
   const router = useRouter();
+  const categoryPickerRef = useRef<CategoryMultiSelectHandle>(null);
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
   
   const [form, setForm] = useState({
     name: '',
@@ -34,7 +39,25 @@ export default function EditMenuItemScreen() {
 
   useEffect(() => {
     fetchItemDetails();
+    fetchCategorySuggestions();
   }, []);
+
+  const fetchCategorySuggestions = async () => {
+    try {
+      const res: any = await managerService.getRestaurantMenus(id);
+      const menusList = res?.data || res?.menus || [];
+      if (!Array.isArray(menusList)) return;
+      const found: string[] = [];
+      menusList.forEach((m: any) => {
+        (m.items || []).forEach((it: any) => {
+          found.push(...normalizeItemCategories(it.categories, it.category, []));
+        });
+      });
+      setCategorySuggestions(found);
+    } catch {
+      // Non-critical suggestion load
+    }
+  };
 
   const fetchItemDetails = async () => {
     try {
@@ -54,6 +77,7 @@ export default function EditMenuItemScreen() {
         ingredients: Array.isArray(item.ingredients) ? item.ingredients.join(', ') : '',
         tags: Array.isArray(item.tags) ? item.tags.join(', ') : ''
       });
+      setSelectedCategories(normalizeItemCategories(item.categories, item.category, ['General']));
     } catch (error) {
       Alert.alert('Error', 'Failed to load item details');
       router.back();
@@ -98,8 +122,13 @@ export default function EditMenuItemScreen() {
     if (!form.name || !form.price) return Alert.alert('Error', 'Name and Price required');
     setSaving(true);
     
+    const resolvedCategories = categoryPickerRef.current?.flushDraft() ?? selectedCategories;
+    const finalCategories = normalizeItemCategories(resolvedCategories, undefined, ['General']);
+
     const payload = {
       ...form,
+      category: finalCategories[0],
+      categories: finalCategories,
       price: parseFloat(form.price),
       calories: parseInt(form.calories) || 0,
       preparation_time_minutes: parseInt(form.preparation_time_minutes) || 15,
@@ -146,6 +175,12 @@ export default function EditMenuItemScreen() {
           <Text style={styles.sectionHeader}>Basic Info</Text>
           <Input label="Item Name" value={form.name} onChangeText={t => setForm({...form, name: t})} />
           <Input label="Price (R)" value={form.price} onChangeText={t => setForm({...form, price: t})} keyboardType="numeric" />
+          <CategoryMultiSelect
+            ref={categoryPickerRef}
+            categories={selectedCategories}
+            onChange={setSelectedCategories}
+            suggestions={categorySuggestions}
+          />
           <Input label="Description" value={form.description} onChangeText={t => setForm({...form, description: t})} multiline />
         </View>
 

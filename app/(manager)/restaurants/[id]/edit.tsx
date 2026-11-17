@@ -23,9 +23,10 @@ export default function EditRestaurantScreen() {
     phone_number: '',
     cuisine_type: '',
     opening_hours: '',
-    preparation_time_minutes: '',
+    preparation_time_minutes: '20',
+    delivery_radius_km: '5',
     logo_url: '',
-    cover_image_url: ''
+    cover_image_url: '',
   });
 
   useEffect(() => {
@@ -34,14 +35,23 @@ export default function EditRestaurantScreen() {
 
   const fetchDetails = async () => {
     try {
-      const response = await api.get(`/restaurants/${id}`);
-      const data = response.data.data || response.data;
+      const response: any = await api.get(`/restaurants/${id}`);
+      const data = response?.data?.id ? response.data : (response?.data?.data || response);
+      const rawHours =
+        data?.opening_hours_display ||
+        (typeof data?.opening_hours === 'object' ? data.opening_hours?.display : data?.opening_hours) ||
+        '08:00 - 21:00';
       setForm({
-        ...data,
-        cuisine_type: Array.isArray(data.cuisine_type) ? data.cuisine_type.join(', ') : data.cuisine_type || '',
-        preparation_time_minutes: String(data.preparation_time_minutes || '20'),
-        // Handle JSON opening hours if needed, assuming string for now based on your previous messages
-        opening_hours: typeof data.opening_hours === 'object' ? data.opening_hours.display : data.opening_hours
+        name: data?.name || '',
+        description: data?.description || '',
+        address: data?.address || '',
+        phone_number: data?.phone_number || '',
+        cuisine_type: Array.isArray(data?.cuisine_type) ? data.cuisine_type.join(', ') : data?.cuisine_type || '',
+        opening_hours: String(rawHours),
+        preparation_time_minutes: String(data?.preparation_time_minutes || '20'),
+        delivery_radius_km: String(data?.delivery_radius_km || '5'),
+        logo_url: data?.logo_url || '',
+        cover_image_url: data?.cover_image_url || '',
       });
     } catch (error) {
       Alert.alert('Error', 'Failed to load details');
@@ -83,13 +93,28 @@ export default function EditRestaurantScreen() {
   };
 
   const handleSave = async () => {
+    if (!form.name.trim() || !form.address.trim()) {
+      Alert.alert('Missing Details', 'Restaurant name and address are required.');
+      return;
+    }
     setSaving(true);
     try {
-      await api.put(`/restaurants/${id}`, form);
+      await api.put(`/restaurants/${id}`, {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        address: form.address.trim(),
+        phone_number: form.phone_number.trim(),
+        cuisine_type: form.cuisine_type.trim(),
+        opening_hours: { display: form.opening_hours.trim() || '08:00 - 21:00' },
+        preparation_time_minutes: parseInt(form.preparation_time_minutes, 10) || 20,
+        delivery_radius_km: parseFloat(form.delivery_radius_km) || 5,
+        logo_url: form.logo_url.trim() || null,
+        cover_image_url: form.cover_image_url.trim() || null,
+      });
       Alert.alert('Success', 'Restaurant updated!');
       router.back();
-    } catch (error) {
-      Alert.alert('Error', 'Update failed');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Update failed');
     } finally {
       setSaving(false);
     }
@@ -149,6 +174,14 @@ export default function EditRestaurantScreen() {
               <Input label="Prep Time (mins)" value={form.preparation_time_minutes} onChangeText={t => setForm({ ...form, preparation_time_minutes: t })} keyboardType="numeric" />
             </View>
           </View>
+
+          <Input
+            label="Delivery Radius (km)"
+            value={form.delivery_radius_km}
+            onChangeText={t => setForm({ ...form, delivery_radius_km: t })}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 15"
+          />
 
           <Button title="Save Changes" onPress={handleSave} loading={saving} style={{ marginTop: 20 }} />
         </View>

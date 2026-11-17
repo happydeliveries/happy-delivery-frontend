@@ -92,6 +92,7 @@ type MenuItem = {
   image_url: string;
   restaurant_id: string;
   category?: string | null;
+  categories?: string[] | null;
   is_popular?: boolean;
   restaurant_rating?: number | string | null;
 };
