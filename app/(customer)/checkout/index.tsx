@@ -229,8 +229,25 @@ export default function CheckoutScreen() {
     }
   };
 
+  const applySavedAddress = (saved: SavedAddress) => {
+    setSelectedSavedId(saved.id || saved.street || null);
+    setResolvedCoords(
+      typeof saved.latitude === 'number' && typeof saved.longitude === 'number'
+        ? { latitude: saved.latitude, longitude: saved.longitude }
+        : null
+    );
+    setAddress({
+      street: saved.street || saved.address || '',
+      city: saved.city || '',
+      zip: saved.postal_code || '',
+      instructions: saved.instructions || '',
+      latitude: saved.latitude,
+      longitude: saved.longitude,
+    });
+  };
+
   useEffect(() => {
-    if (!hydrated || items.length === 0 || !restaurantId) return;
+    if (!isCheckoutFocused || !hydrated || items.length === 0 || !restaurantId) return;
 
     const hasExplicitCoords =
       typeof address.latitude === 'number' && typeof address.longitude === 'number';
@@ -256,6 +273,7 @@ export default function CheckoutScreen() {
 
     return () => clearTimeout(timer);
   }, [
+    isCheckoutFocused,
     hydrated,
     items.length,
     restaurantId,
@@ -266,35 +284,57 @@ export default function CheckoutScreen() {
     address.longitude,
   ]);
 
-  // Load saved delivery addresses & preferred payment method when signed in
-  // Respect an explicitly picked area/address (e.g., ordering for Nelspruit from Gauteng)
+  // Keep form synced with explicitly selected home/picker address without triggering network fetches
   useEffect(() => {
+    if (!isCheckoutFocused || items.length === 0) return;
     if (activeAddressMode === 'address' && activeSelectedAddress) {
       applySavedAddress(activeSelectedAddress);
     }
+  }, [
+    isCheckoutFocused,
+    items.length,
+    activeAddressMode,
+    activeSelectedAddress?.id,
+    activeSelectedAddress?.street,
+    activeSelectedAddress?.city,
+    activeSelectedAddress?.postal_code,
+    activeSelectedAddress?.instructions,
+    activeSelectedAddress?.latitude,
+    activeSelectedAddress?.longitude,
+  ]);
 
-    if (!user) return;
+  // Load saved delivery addresses & preferred payment method only when checkout is actively open with items
+  useEffect(() => {
+    if (!isCheckoutFocused || !user?.id || items.length === 0) return;
+    let active = true;
+
     authService
       .getCurrentUser()
       .then((meRes: any) => {
+        if (!active) return;
         const prof = meRes?.profile ?? meRes?.data?.profile;
         if (prof?.default_payment_method === 'mobile_money') {
           setPaymentMethod('mobile_money');
         }
       })
       .catch(() => {});
+
     syncSavedAddresses()
       .then((list) => {
-        if (Array.isArray(list) && list.length > 0) {
-          setSavedAddresses(list);
-          if (!(activeAddressMode === 'address' && activeSelectedAddress)) {
-            const def = list.find((a) => a.is_default) || list[0];
-            applySavedAddress(def);
-          }
+        if (!active || !Array.isArray(list) || list.length === 0) return;
+        setSavedAddresses(list);
+        const { mode: currentMode, selectedAddress: currentSelected } = useAddressStore.getState();
+        if (!(currentMode === 'address' && currentSelected)) {
+          const def = list.find((a) => a.is_default) || list[0];
+          if (def) applySavedAddress(def);
         }
       })
       .catch(() => {});
-  }, [user?.id, activeAddressMode, activeSelectedAddress, syncSavedAddresses]);
+
+    return () => {
+      active = false;
+    };
+  }, [isCheckoutFocused, user?.id, items.length, syncSavedAddresses]);
 
   // Redirect to cart if hydrated and cart is empty (unless order was just submitted)
   useEffect(() => {
@@ -307,23 +347,6 @@ export default function CheckoutScreen() {
   if (!hydrated || (!orderSuccessRef.current && hydrated && items.length === 0)) {
     return null;
   }
-
-  const applySavedAddress = (saved: SavedAddress) => {
-    setSelectedSavedId(saved.id || saved.street || null);
-    setResolvedCoords(
-      typeof saved.latitude === 'number' && typeof saved.longitude === 'number'
-        ? { latitude: saved.latitude, longitude: saved.longitude }
-        : null
-    );
-    setAddress({
-      street: saved.street || saved.address || '',
-      city: saved.city || '',
-      zip: saved.postal_code || '',
-      instructions: saved.instructions || '',
-      latitude: saved.latitude,
-      longitude: saved.longitude,
-    });
-  };
 
   const handleUseCurrentLocation = async () => {
     setLocating(true);

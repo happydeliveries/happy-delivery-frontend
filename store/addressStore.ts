@@ -175,6 +175,25 @@ export function resolveEffectiveDiscoveryLocation(params: {
   };
 }
 
+let inFlightAddressSync: Promise<DeliveryAddressItem[]> | null = null;
+
+function addressEquals(a?: DeliveryAddressItem | null, b?: DeliveryAddressItem | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.label === b.label &&
+    a.street === b.street &&
+    a.address === b.address &&
+    a.city === b.city &&
+    a.postal_code === b.postal_code &&
+    a.instructions === b.instructions &&
+    a.latitude === b.latitude &&
+    a.longitude === b.longitude &&
+    Boolean(a.is_default) === Boolean(b.is_default)
+  );
+}
+
 interface AddressState {
   mode: AddressSelectionMode;
   selectedAddress: DeliveryAddressItem | null;
@@ -227,31 +246,41 @@ export const useAddressStore = create<AddressState>()(
       },
 
       syncSavedAddresses: async () => {
-        set({ loadingSaved: true });
-        try {
-          const res: any = await userService.getAddresses();
-          const list: DeliveryAddressItem[] = Array.isArray(res) ? res : res?.data ?? [];
-          const cleanList = Array.isArray(list) ? list : [];
-
-          const currentSelected = get().selectedAddress;
-          let refreshedSelected = currentSelected;
-          if (currentSelected?.id) {
-            const match = cleanList.find((a) => a.id === currentSelected.id);
-            if (match) {
-              refreshedSelected = { ...currentSelected, ...match };
-            }
-          }
-
-          set({
-            savedAddresses: cleanList,
-            selectedAddress: refreshedSelected,
-          });
-          return cleanList;
-        } catch {
-          return get().savedAddresses;
-        } finally {
-          set({ loadingSaved: false });
+        if (inFlightAddressSync) {
+          return inFlightAddressSync;
         }
+        set({ loadingSaved: true });
+        inFlightAddressSync = (async () => {
+          try {
+            const res: any = await userService.getAddresses();
+            const list: DeliveryAddressItem[] = Array.isArray(res) ? res : res?.data ?? [];
+            const cleanList = Array.isArray(list) ? list : [];
+
+            const currentSelected = get().selectedAddress;
+            let refreshedSelected = currentSelected;
+            if (currentSelected?.id) {
+              const match = cleanList.find((a) => a.id === currentSelected.id);
+              if (match) {
+                const merged = { ...currentSelected, ...match };
+                if (!addressEquals(currentSelected, merged)) {
+                  refreshedSelected = merged;
+                }
+              }
+            }
+
+            set({
+              savedAddresses: cleanList,
+              ...(refreshedSelected !== currentSelected ? { selectedAddress: refreshedSelected } : {}),
+            });
+            return cleanList;
+          } catch {
+            return get().savedAddresses;
+          } finally {
+            set({ loadingSaved: false });
+            inFlightAddressSync = null;
+          }
+        })();
+        return inFlightAddressSync;
       },
 
       saveNewAddress: async (addrInput, options) => {
@@ -310,6 +339,7 @@ export const useAddressStore = create<AddressState>()(
       },
 
       resetForLogout: () => {
+        inFlightAddressSync = null;
         set({
           mode: 'gps',
           selectedAddress: null,
