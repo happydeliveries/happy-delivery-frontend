@@ -13,7 +13,7 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../common/Button';
-import { colors } from '../../constants/colors';
+import { customerColors as colors } from '../../constants/customerTheme';
 
 export interface NormalizedOptionChoice {
   id: string;
@@ -49,23 +49,23 @@ export function normalizeCustomizations(raw: any): NormalizedCustomizationGroup[
         g?.type === 'multiple' || Number(g?.max_select) > 1 ? 'multiple' : 'single';
       const options: NormalizedOptionChoice[] = Array.isArray(g?.options)
         ? g.options
-            .map((opt: any, oIdx: number) => {
-              if (typeof opt === 'string') {
-                return {
-                  id: `opt_${gIdx}_${oIdx}`,
-                  name: opt,
-                  price: 0,
-                  is_available: true,
-                };
-              }
+          .map((opt: any, oIdx: number) => {
+            if (typeof opt === 'string') {
               return {
-                id: opt?.id || `opt_${gIdx}_${oIdx}`,
-                name: String(opt?.name || opt?.label || '').trim(),
-                price: Number(opt?.price ?? opt?.priceDelta ?? 0) || 0,
-                is_available: opt?.is_available !== false,
+                id: `opt_${gIdx}_${oIdx}`,
+                name: opt,
+                price: 0,
+                is_available: true,
               };
-            })
-            .filter((o: NormalizedOptionChoice) => o.name.length > 0 && o.is_available)
+            }
+            return {
+              id: opt?.id || `opt_${gIdx}_${oIdx}`,
+              name: String(opt?.name || opt?.label || '').trim(),
+              price: Number(opt?.price ?? opt?.priceDelta ?? 0) || 0,
+              is_available: opt?.is_available !== false,
+            };
+          })
+          .filter((o: NormalizedOptionChoice) => o.name.length > 0 && o.is_available)
         : [];
 
       return {
@@ -235,13 +235,13 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
               )}
               {item.is_popular && (
                 <View style={styles.popularBadge}>
-                  <Ionicons name="flame" size={11} color="#9a3412" />
+                  <Ionicons name="flame" size={11} color={colors.primaryText} />
                   <Text style={styles.popularBadgeText}>Popular</Text>
                 </View>
               )}
               {customizationGroups.length > 0 && (
                 <View style={styles.customizableBadge}>
-                  <Ionicons name="options-outline" size={11} color={colors.primary} />
+                  <Ionicons name="options-outline" size={11} color={colors.primaryText} />
                   <Text style={styles.customizableBadgeText}>Customizable</Text>
                 </View>
               )}
@@ -299,7 +299,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
             style={styles.addButton}
             onPress={() => setModalVisible(true)}
           >
-            <Ionicons name="add" size={22} color="#fff" />
+            <Ionicons name="add" size={22} color={colors.onPrimary} />
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -384,11 +384,11 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
                                           ? 'checkbox'
                                           : 'square-outline'
                                         : isSelected
-                                        ? 'radio-button-on'
-                                        : 'radio-button-off'
+                                          ? 'radio-button-on'
+                                          : 'radio-button-off'
                                     }
                                     size={20}
-                                    color={isSelected ? colors.primary : colors.gray400}
+                                    color={isSelected ? colors.primaryText : colors.gray400}
                                   />
                                   <Text
                                     style={[
@@ -439,7 +439,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
                     style={styles.quantityButton}
                     onPress={handleDecrement}
                   >
-                    <Ionicons name="remove" size={20} color={colors.primary} />
+                    <Ionicons name="remove" size={20} color={colors.onPrimary} />
                   </TouchableOpacity>
 
                   <Text style={styles.quantityText}>{quantity}</Text>
@@ -448,7 +448,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
                     style={styles.quantityButton}
                     onPress={handleIncrement}
                   >
-                    <Ionicons name="add" size={20} color={colors.primary} />
+                    <Ionicons name="add" size={20} color={colors.onPrimary} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -470,6 +470,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
               </View>
 
               <Button
+                tone="customer"
                 title={`Add to Cart • R${(unitPrice * quantity).toFixed(2)}`}
                 onPress={handleAddToCart}
                 style={styles.addToCartButton}
@@ -484,7 +485,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ item, restaurantId, onAddToCart }) 
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     marginBottom: 16,
     padding: 16,
@@ -526,7 +527,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#ffedd5',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
@@ -534,15 +535,15 @@ const styles = StyleSheet.create({
   popularBadgeText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#9a3412',
+    color: colors.primaryText,
   },
   customizableBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryBorder,
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
@@ -550,7 +551,7 @@ const styles = StyleSheet.create({
   customizableBadgeText: {
     fontSize: 10,
     fontWeight: '600',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   header: {
     flexDirection: 'row',
@@ -576,7 +577,7 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   description: {
     fontSize: 13,
@@ -639,7 +640,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '88%',
@@ -650,7 +651,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.divider,
   },
   modalTitle: {
     fontSize: 20,
@@ -733,12 +734,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#fff',
+    borderColor: colors.divider,
+    backgroundColor: colors.surface,
   },
   optionRowSelected: {
-    borderColor: colors.primary,
-    backgroundColor: '#f0fdf4',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   optionRowLeft: {
     flexDirection: 'row',
@@ -752,7 +753,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   optionRowNameSelected: {
-    color: colors.primary,
+    color: colors.primaryText,
     fontWeight: '700',
   },
   optionRowPrice: {
@@ -817,7 +818,7 @@ const styles = StyleSheet.create({
   totalPrice: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   addToCartButton: {
     width: '100%',

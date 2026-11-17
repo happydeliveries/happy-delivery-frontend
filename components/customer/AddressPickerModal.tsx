@@ -17,7 +17,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { useLocation } from '../../hooks/useLocation';
 import { useAddressStore, formatAddressSummary, DeliveryAddressItem } from '../../store/addressStore';
 import { useFeedbackStore } from '../../store/feedbackStore';
-import { colors } from '../../constants/colors';
 
 interface AddressPickerModalProps {
   visible: boolean;
@@ -209,7 +208,7 @@ export default function AddressPickerModal({
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color="#1E293B" />
+              <Ionicons name="close" size={20} color="#18181B" />
             </TouchableOpacity>
           </View>
 
@@ -227,8 +226,8 @@ export default function AddressPickerModal({
               <View style={[styles.optionIcon, gpsActive && styles.optionIconActive]}>
                 <Ionicons
                   name={gpsOff ? 'location-outline' : 'navigate'}
-                  size={20}
-                  color={gpsActive ? '#FFFFFF' : colors.primary}
+                  size={19}
+                  color={gpsActive ? '#FFFFFF' : '#374151'}
                 />
               </View>
               <View style={styles.optionBody}>
@@ -240,23 +239,23 @@ export default function AddressPickerModal({
                 </Text>
               </View>
               {applyingKey === 'gps' ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ActivityIndicator size="small" color="#374151" />
               ) : gpsActive ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                <Ionicons name="checkmark-circle" size={22} color="#18181B" />
               ) : (
-                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
               )}
             </TouchableOpacity>
 
             {/* Saved Addresses Section */}
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeading}>Saved Addresses</Text>
-              {loadingSaved && <ActivityIndicator size="small" color={colors.primary} />}
+              {loadingSaved && <ActivityIndicator size="small" color="#4B5563" />}
             </View>
 
             {savedAddresses.length === 0 ? (
               <View style={styles.emptyBox}>
-                <Ionicons name="bookmark-outline" size={20} color="#94A3B8" />
+                <Ionicons name="bookmark-outline" size={20} color="#9CA3AF" />
                 <Text style={styles.emptyText}>
                   {user
                     ? 'No saved addresses yet. Add one below (for yourself or someone you are ordering for).'
@@ -282,8 +281,8 @@ export default function AddressPickerModal({
                     <View style={[styles.optionIcon, isSelected && styles.optionIconActive]}>
                       <Ionicons
                         name="bookmark"
-                        size={18}
-                        color={isSelected ? '#FFFFFF' : colors.primary}
+                        size={17}
+                        color={isSelected ? '#FFFFFF' : '#374151'}
                       />
                     </View>
                     <View style={styles.optionBody}>
@@ -302,11 +301,11 @@ export default function AddressPickerModal({
                       </Text>
                     </View>
                     {applyingKey === keyId ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
+                      <ActivityIndicator size="small" color="#374151" />
                     ) : isSelected ? (
-                      <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                      <Ionicons name="checkmark-circle" size={22} color="#18181B" />
                     ) : (
-                      <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                     )}
                   </TouchableOpacity>
                 );
@@ -318,7 +317,11 @@ export default function AddressPickerModal({
               style={styles.toggleCustomBtn}
               onPress={() => setShowCustomForm((prev) => !prev)}
             >
-              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+              <Ionicons
+                name={showCustomForm ? 'remove-circle-outline' : 'add-circle-outline'}
+                size={20}
+                color="#18181B"
+              />
               <Text style={styles.toggleCustomText}>
                 {showCustomForm
                   ? 'Hide custom address form'
@@ -335,21 +338,21 @@ export default function AddressPickerModal({
                 <TextInput
                   style={styles.input}
                   placeholder="Label (e.g., Mom - Nelspruit, Office)"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor="#9CA3AF"
                   value={label}
                   onChangeText={setLabel}
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="Street Address (e.g., 12 Ferreira St)"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor="#9CA3AF"
                   value={street}
                   onChangeText={setStreet}
                 />
                 <TextInput
                   style={styles.input}
                   placeholder="City / Town * (e.g., Nelspruit)"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor="#9CA3AF"
                   value={city}
                   onChangeText={setCity}
                 />
@@ -360,7 +363,7 @@ export default function AddressPickerModal({
                     <Switch
                       value={saveToProfile}
                       onValueChange={setSaveToProfile}
-                      trackColor={{ false: '#CBD5E1', true: colors.primary }}
+                      trackColor={{ false: '#D1D5DB', true: '#18181B' }}
                     />
                   </View>
                 )}
@@ -388,13 +391,13 @@ export default function AddressPickerModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    backgroundColor: 'rgba(24, 24, 27, 0.42)',
     justifyContent: 'flex-end',
   },
   sheet: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     maxHeight: '85%',
     paddingHorizontal: 20,
     paddingTop: 20,
@@ -409,18 +412,18 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 19,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#18181B',
   },
   sheetSubtitle: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#6B7280',
     marginTop: 2,
   },
   closeBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -431,27 +434,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 13,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F5F5F5',
     marginBottom: 10,
     gap: 12,
   },
   optionCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#FFF7ED',
+    borderColor: '#18181B',
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
   },
   optionIcon: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#FFEAD5',
+    backgroundColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
   },
   optionIconActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: '#18181B',
   },
   optionBody: {
     flex: 1,
@@ -464,23 +468,23 @@ const styles = StyleSheet.create({
   optionTitle: {
     fontSize: 14.5,
     fontWeight: '700',
-    color: '#0F172A',
+    color: '#18181B',
   },
   optionDesc: {
     fontSize: 12.5,
-    color: '#64748B',
+    color: '#6B7280',
     marginTop: 2,
   },
   defaultBadge: {
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#E5E7EB',
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   defaultBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#334155',
+    color: '#374151',
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -492,13 +496,13 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#334155',
+    color: '#374151',
   },
   emptyBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F5F5F5',
     borderRadius: 12,
     padding: 14,
     marginBottom: 10,
@@ -506,7 +510,7 @@ const styles = StyleSheet.create({
   emptyText: {
     flex: 1,
     fontSize: 12.5,
-    color: '#64748B',
+    color: '#6B7280',
     lineHeight: 18,
   },
   toggleCustomBtn: {
@@ -518,31 +522,31 @@ const styles = StyleSheet.create({
   toggleCustomText: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.primary,
+    color: '#18181B',
     flex: 1,
   },
   customFormCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#E5E7EB',
   },
   formTip: {
     fontSize: 12,
-    color: '#64748B',
+    color: '#6B7280',
     marginBottom: 10,
     lineHeight: 17,
   },
   input: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#D1D5DB',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#0F172A',
+    color: '#18181B',
     marginBottom: 10,
   },
   saveSwitchRow: {
@@ -554,11 +558,11 @@ const styles = StyleSheet.create({
   saveSwitchLabel: {
     fontSize: 13.5,
     fontWeight: '600',
-    color: '#334155',
+    color: '#374151',
   },
   applyBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
+    backgroundColor: '#18181B',
+    borderRadius: 10,
     paddingVertical: 13,
     alignItems: 'center',
   },

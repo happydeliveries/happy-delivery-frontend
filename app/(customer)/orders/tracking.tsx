@@ -18,9 +18,19 @@ import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { orderService } from '../../../services/order';
 import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
+import {
+  parseCoordinates,
+  getDistanceKm,
+  computeBearingDegrees,
+  interpolateHeading,
+  trimRouteFromDriver,
+  formatDistanceCompact,
+  type LatLngCoord,
+  type OrderRouteData,
+} from '../../../utils/routing';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -29,94 +39,30 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const { width, height } = Dimensions.get('window');
 
-type LatLng = {
-  latitude: number;
-  longitude: number;
-};
-
-// Helper to parse coordinates from any backend/Postgres/Socket format
-const parseCoordinates = (location: any): LatLng | null => {
-  if (!location) return null;
-
-  let raw = location;
-  if (typeof raw === 'string') {
-    try {
-      raw = JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  let lat: number | null = null;
-  let lng: number | null = null;
-
-  if (Array.isArray(raw) && raw.length >= 2) {
-    lng = Number(raw[0]);
-    lat = Number(raw[1]);
-  } else if (typeof raw === 'object') {
-    if (raw.latitude !== undefined && raw.longitude !== undefined) {
-      lat = Number(raw.latitude);
-      lng = Number(raw.longitude);
-    } else if (raw.lat !== undefined && raw.lng !== undefined) {
-      lat = Number(raw.lat);
-      lng = Number(raw.lng);
-    } else if (raw.x !== undefined && raw.y !== undefined) {
-      lng = Number(raw.x);
-      lat = Number(raw.y);
-    } else if (Array.isArray(raw.coordinates) && raw.coordinates.length >= 2) {
-      lng = Number(raw.coordinates[0]);
-      lat = Number(raw.coordinates[1]);
-    }
-  }
-
-  if (lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return null;
-  }
-  if (lat === 0 && lng === 0) return null;
-
-  // Auto-correct only if lat is out of valid [-90, 90] bounds or clearly reversed SA coordinates
-  if ((Math.abs(lat) > 90 && Math.abs(lng) <= 90) || (lat >= 15 && lat <= 35 && lng <= -20 && lng >= -36)) {
-    const tmp = lat;
-    lat = lng;
-    lng = tmp;
-  }
-
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return null;
-  }
-
-  return { latitude: lat, longitude: lng };
-};
-
-// Haversine distance in km
-const getDistanceKm = (a: LatLng | null, b: LatLng | null): number | null => {
-  if (!a || !b) return null;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLon = Math.sin(dLon / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-};
-
 export default function TrackingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const hasInitialFit = useRef(false);
+  const hasOrderDropoffCoordsRef = useRef(false);
+  const lastRouteSyncRef = useRef<number>(0);
+  const prevRawDriverLocRef = useRef<LatLngCoord | null>(null);
+  const animatedDriverCoordRef = useRef<LatLngCoord | null>(null);
+  const animatedHeadingRef = useRef<number>(0);
+  const markerAnimFrameRef = useRef<number | null>(null);
 
   const socket = useSocket();
   const isSocketConnected = useSocketStatus();
 
   const [order, setOrder] = useState<any>(null);
-  const [driverLocation, setDriverLocation] = useState<LatLng | null>(null);
-  const [restaurantLocation, setRestaurantLocation] = useState<LatLng | null>(null);
-  const [userLocation, setUserLocation] = useState<LatLng>({
+  const [driverLocation, setDriverLocation] = useState<LatLngCoord | null>(null);
+  const [driverHeading, setDriverHeading] = useState<number>(0);
+  const [displayDriverLocation, setDisplayDriverLocation] = useState<LatLngCoord | null>(null);
+  const [displayDriverHeading, setDisplayDriverHeading] = useState<number>(0);
+  const [isMarkerAnimating, setIsMarkerAnimating] = useState(false);
+  const [restaurantLocation, setRestaurantLocation] = useState<LatLngCoord | null>(null);
+  const [routeData, setRouteData] = useState<OrderRouteData | null>(null);
+  const [userLocation, setUserLocation] = useState<LatLngCoord>({
     latitude: -26.2041,
     longitude: 28.0473,
   });
@@ -137,7 +83,7 @@ export default function TrackingScreen() {
       .catch(() => {});
   }, []);
 
-  // Get customer's real GPS location if permission is available
+  // Fallback GPS only if order delivery_address lacks coordinates (never overwrite order's actual drop-off pin)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -147,11 +93,14 @@ export default function TrackingScreen() {
           const pos =
             (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null)) ||
             (await Location.getLastKnownPositionAsync().catch(() => null));
-          if (mounted && pos?.coords) {
-            setUserLocation((prev) => ({
-              latitude: pos.coords.latitude || prev.latitude,
-              longitude: pos.coords.longitude || prev.longitude,
-            }));
+          if (mounted && pos?.coords && !hasOrderDropoffCoordsRef.current) {
+            setUserLocation((prev) => {
+              if (hasOrderDropoffCoordsRef.current) return prev;
+              return {
+                latitude: pos.coords.latitude || prev.latitude,
+                longitude: pos.coords.longitude || prev.longitude,
+              };
+            });
           }
         }
       } catch {
@@ -163,20 +112,52 @@ export default function TrackingScreen() {
     };
   }, []);
 
+  const syncOrderRoute = useCallback(
+    async (coords?: LatLngCoord | null, force = false) => {
+      if (!id) return null;
+      lastRouteSyncRef.current = Date.now();
+      try {
+        const res: any = await orderService.getOrderRoute(
+          id,
+          coords ? { lat: coords.latitude, lng: coords.longitude, force } : { force }
+        );
+        const routePayload: OrderRouteData | undefined = res?.data || res;
+        if (routePayload && Array.isArray(routePayload.reactNativeCoords)) {
+          setRouteData(routePayload);
+          if (routePayload.customerCoords) {
+            hasOrderDropoffCoordsRef.current = true;
+            setUserLocation(routePayload.customerCoords);
+          }
+          if (routePayload.restaurantCoords) {
+            setRestaurantLocation(routePayload.restaurantCoords);
+          }
+          return routePayload;
+        }
+      } catch {
+        // Quiet fallback to Haversine/straight line if offline or timed out
+      }
+      return null;
+    },
+    [id]
+  );
+
   const fetchOrderData = useCallback(
     async (silent = false) => {
       if (!id) return;
       try {
-        // Fetch order details + live tracking endpoint
-        const response: any = await orderService.getOrder(id);
-        const data = response?.data || response?.order || response;
+        const [orderRes, routeRes]: [any, any] = await Promise.all([
+          orderService.getOrder(id),
+          orderService.getOrderRoute(id).catch(() => null),
+        ]);
+        const data = orderRes?.data || orderRes?.order || orderRes;
         if (!data) return;
 
         setOrder(data);
 
-        // Parse delivery address coordinates if present
+        // Order's real delivery_address coordinates ALWAYS take priority over device GPS
         const addrCoords = parseCoordinates(data.delivery_address);
         if (addrCoords) {
+          hasOrderDropoffCoordsRef.current = true;
           setUserLocation(addrCoords);
         }
 
@@ -192,13 +173,28 @@ export default function TrackingScreen() {
           setRestaurantLocation(rCoords);
         }
 
+        // Apply OSRM route payload if retrieved
+        const routePayload: OrderRouteData | undefined = routeRes?.data || routeRes;
+        if (routePayload && Array.isArray(routePayload.reactNativeCoords)) {
+          lastRouteSyncRef.current = Date.now();
+          setRouteData(routePayload);
+          if (!addrCoords && routePayload.customerCoords) {
+            hasOrderDropoffCoordsRef.current = true;
+            setUserLocation(routePayload.customerCoords);
+          }
+          if (!rCoords && routePayload.restaurantCoords) {
+            setRestaurantLocation(routePayload.restaurantCoords);
+          }
+        }
+
         // Parse driver coordinates (only fallback to restaurant location when status === 'picked_up')
-        let dCoords = parseCoordinates(data.driver_location);
-        if (!dCoords && data.status === 'picked_up' && rCoords) {
-          dCoords = rCoords;
+        let dCoords = parseCoordinates(data.driver_location) || routePayload?.driverCoords || null;
+        if (!dCoords && data.status === 'picked_up' && (rCoords || routePayload?.restaurantCoords)) {
+          dCoords = rCoords || routePayload?.restaurantCoords || null;
         }
 
         if (dCoords) {
+          prevRawDriverLocRef.current = dCoords;
           setDriverLocation(dCoords);
           setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         }
@@ -234,8 +230,39 @@ export default function TrackingScreen() {
     const handleDriverLocation = (data: any) => {
       const coords = parseCoordinates(data?.location || data);
       if (coords) {
+        const incomingHeading = Number(data?.heading);
+        const computedHeading =
+          Number.isFinite(incomingHeading) && incomingHeading >= 0
+            ? incomingHeading
+            : computeBearingDegrees(prevRawDriverLocRef.current, coords);
+        if (computedHeading !== null) {
+          setDriverHeading(computedHeading);
+        }
+        prevRawDriverLocRef.current = coords;
         setDriverLocation(coords);
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+        if (data?.route && Array.isArray(data.route.reactNativeCoords)) {
+          lastRouteSyncRef.current = Date.now();
+          setRouteData((prev) => ({
+            ...(prev || {}),
+            ...data.route,
+            previewRoute: data.route.previewRoute ?? prev?.previewRoute ?? null,
+          }));
+        } else {
+          setRouteData((prev) => {
+            if (!prev || !Array.isArray(prev.reactNativeCoords) || prev.reactNativeCoords.length < 2) {
+              return prev;
+            }
+            return {
+              ...prev,
+              reactNativeCoords: trimRouteFromDriver(prev.reactNativeCoords, coords),
+            };
+          });
+          if (Date.now() - lastRouteSyncRef.current > 40000) {
+            syncOrderRoute(coords);
+          }
+        }
       }
     };
 
@@ -246,6 +273,9 @@ export default function TrackingScreen() {
       const nextStatus = data?.status || data?.new_status || data?.order?.status;
       const nextDriverLoc = parseCoordinates(data?.driver_location || data?.order?.driver_location);
       if (nextDriverLoc) {
+        const bearing = computeBearingDegrees(prevRawDriverLocRef.current, nextDriverLoc);
+        if (bearing !== null) setDriverHeading(bearing);
+        prevRawDriverLocRef.current = nextDriverLoc;
         setDriverLocation(nextDriverLoc);
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
@@ -261,7 +291,7 @@ export default function TrackingScreen() {
               }
             : data?.order || prev
         );
-        if (['accepted_by_driver', 'picked_up'].includes(nextStatus)) {
+        if (['accepted_by_driver', 'order_ready', 'picked_up', 'on_the_way', 'arrived'].includes(nextStatus)) {
           fetchOrderData(true);
         }
       } else {
@@ -294,7 +324,74 @@ export default function TrackingScreen() {
       socket.off('order_update', handleOrderUpdate);
       socket.off('verification_code_generated', handleVerificationCode);
     };
-  }, [id, socket, fetchOrderData]);
+  }, [id, socket, fetchOrderData, syncOrderRoute]);
+
+  const targetDriverCoord: LatLngCoord | null =
+    driverLocation || (order?.status === 'picked_up' ? restaurantLocation : null);
+
+  // Smoothly interpolate driver marker position & heading over ~1.25s between GPS pings
+  useEffect(() => {
+    if (!targetDriverCoord) {
+      animatedDriverCoordRef.current = null;
+      setDisplayDriverLocation(null);
+      setIsMarkerAnimating(false);
+      return;
+    }
+
+    const fromCoord = animatedDriverCoordRef.current;
+    const fromHeading = animatedHeadingRef.current;
+
+    if (!fromCoord) {
+      animatedDriverCoordRef.current = targetDriverCoord;
+      animatedHeadingRef.current = driverHeading;
+      setDisplayDriverLocation(targetDriverCoord);
+      setDisplayDriverHeading(driverHeading);
+      setIsMarkerAnimating(false);
+      return;
+    }
+
+    if (markerAnimFrameRef.current !== null) {
+      cancelAnimationFrame(markerAnimFrameRef.current);
+      markerAnimFrameRef.current = null;
+    }
+
+    const durationMs = 1250;
+    const startTime = Date.now();
+    setIsMarkerAnimating(true);
+
+    const step = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(1, elapsed / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+
+      const nextCoord: LatLngCoord = {
+        latitude: fromCoord.latitude + (targetDriverCoord.latitude - fromCoord.latitude) * eased,
+        longitude: fromCoord.longitude + (targetDriverCoord.longitude - fromCoord.longitude) * eased,
+      };
+      const nextHeading = interpolateHeading(fromHeading, driverHeading, eased);
+
+      animatedDriverCoordRef.current = nextCoord;
+      animatedHeadingRef.current = nextHeading;
+      setDisplayDriverLocation(nextCoord);
+      setDisplayDriverHeading(nextHeading);
+
+      if (t < 1) {
+        markerAnimFrameRef.current = requestAnimationFrame(step);
+      } else {
+        markerAnimFrameRef.current = null;
+        setIsMarkerAnimating(false);
+      }
+    };
+
+    markerAnimFrameRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (markerAnimFrameRef.current !== null) {
+        cancelAnimationFrame(markerAnimFrameRef.current);
+        markerAnimFrameRef.current = null;
+      }
+    };
+  }, [targetDriverCoord?.latitude, targetDriverCoord?.longitude, driverHeading]);
 
   const isTerminalTracking = Boolean(
     order?.status && ['delivered', 'cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status)
@@ -319,13 +416,16 @@ export default function TrackingScreen() {
     return () => sub.remove();
   }, [isTerminalTracking, fetchOrderData]);
 
-  // Fit map to show Driver, Restaurant (when picked_up/accepted), and Customer
+  // Fit map to show Driver, Restaurant (when pre-pickup or active), route polyline, and Customer
   const fitMapToRoute = useCallback(() => {
     if (!mapRef.current) return;
-    const points: LatLng[] = [userLocation];
+    const points: LatLngCoord[] = [userLocation];
     if (driverLocation) points.push(driverLocation);
-    if (restaurantLocation && ['accepted_by_driver', 'picked_up'].includes(order?.status)) {
+    if (restaurantLocation && ['accepted_by_driver', 'order_ready', 'picked_up'].includes(order?.status)) {
       points.push(restaurantLocation);
+    }
+    if (routeData?.reactNativeCoords && routeData.reactNativeCoords.length >= 2) {
+      points.push(routeData.reactNativeCoords[0], routeData.reactNativeCoords[routeData.reactNativeCoords.length - 1]);
     }
     if (points.length >= 2) {
       mapRef.current.fitToCoordinates(points, {
@@ -343,7 +443,7 @@ export default function TrackingScreen() {
         600
       );
     }
-  }, [driverLocation, restaurantLocation, userLocation, order?.status, showQR]);
+  }, [driverLocation, restaurantLocation, userLocation, order?.status, showQR, routeData?.reactNativeCoords?.length]);
 
   useEffect(() => {
     if (driverLocation && !hasInitialFit.current) {
@@ -439,7 +539,7 @@ export default function TrackingScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={colors.primaryText} />
         <Text style={styles.loadingText}>Establishing live map connection...</Text>
       </View>
     );
@@ -454,13 +554,78 @@ export default function TrackingScreen() {
     );
   }
 
-  const effectiveDriverLocation: LatLng | null =
+  const effectiveDriverLocation: LatLngCoord | null =
+    displayDriverLocation ||
     driverLocation ||
     (order.status === 'picked_up' ? restaurantLocation : null);
 
-  const distanceKm = getDistanceKm(effectiveDriverLocation, userLocation);
-  const etaMinutes = distanceKm !== null ? Math.max(2, Math.round((distanceKm / 30) * 60 + 2)) : null;
+  const isPrePickupStage = ['accepted_by_driver', 'order_ready'].includes(order.status);
   const isPickedUpOrEnRoute = ['picked_up', 'on_the_way', 'arrived'].includes(order.status);
+
+  // Two-stage journey polylines using OSRM road geometry (+ straight-line fallback only if OSRM unavailable)
+  const primaryRouteCoords: LatLngCoord[] = (() => {
+    if (isPrePickupStage) {
+      if (routeData?.leg === 'to_restaurant' && routeData.reactNativeCoords.length >= 2) {
+        return effectiveDriverLocation
+          ? trimRouteFromDriver(routeData.reactNativeCoords, effectiveDriverLocation)
+          : routeData.reactNativeCoords;
+      }
+      if (effectiveDriverLocation && restaurantLocation) {
+        return [effectiveDriverLocation, restaurantLocation];
+      }
+      return [];
+    }
+
+    if (isPickedUpOrEnRoute) {
+      if (
+        (routeData?.leg === 'to_customer' || routeData?.leg === 'preview_to_customer') &&
+        routeData.reactNativeCoords.length >= 2
+      ) {
+        return effectiveDriverLocation
+          ? trimRouteFromDriver(routeData.reactNativeCoords, effectiveDriverLocation)
+          : routeData.reactNativeCoords;
+      }
+      if (effectiveDriverLocation) {
+        return [effectiveDriverLocation, userLocation];
+      }
+      return [];
+    }
+
+    return [];
+  })();
+
+  const previewRouteCoords: LatLngCoord[] = (() => {
+    if (isPrePickupStage) {
+      if (routeData?.previewRoute?.reactNativeCoords && routeData.previewRoute.reactNativeCoords.length >= 2) {
+        return routeData.previewRoute.reactNativeCoords;
+      }
+      if (restaurantLocation) {
+        return [restaurantLocation, userLocation];
+      }
+      return [];
+    }
+    if (!isPickedUpOrEnRoute && routeData?.leg === 'preview_to_customer' && routeData.reactNativeCoords.length >= 2) {
+      return routeData.reactNativeCoords;
+    }
+    return [];
+  })();
+
+  // Real OSRM road distance & ETA (keep Haversine strictly as offline/timeout fallback)
+  const targetStopForFallback = isPrePickupStage && restaurantLocation ? restaurantLocation : userLocation;
+  const fallbackDistanceKm = getDistanceKm(effectiveDriverLocation, targetStopForFallback);
+  const hasOsrmMetrics =
+    routeData &&
+    routeData.distanceKm !== null &&
+    routeData.durationMinutes !== null &&
+    ((isPrePickupStage && routeData.leg === 'to_restaurant') ||
+      (isPickedUpOrEnRoute && (routeData.leg === 'to_customer' || routeData.leg === 'preview_to_customer')));
+
+  const distanceKm = hasOsrmMetrics ? routeData!.distanceKm : fallbackDistanceKm;
+  const etaMinutes = hasOsrmMetrics
+    ? routeData!.durationMinutes
+    : fallbackDistanceKm !== null
+    ? Math.max(2, Math.round((fallbackDistanceKm / 28) * 60 + 2))
+    : null;
 
   return (
     <View style={styles.container}>
@@ -490,15 +655,51 @@ export default function TrackingScreen() {
         {!!restaurantLocation && (
           <Marker coordinate={restaurantLocation} title={order.restaurant_name || 'Restaurant'} description="Pickup Location">
             <View style={styles.markerRestaurant}>
-              <Ionicons name="restaurant" size={16} color="#fff" />
+              <Ionicons name="restaurant" size={16} color={colors.onPrimary} />
             </View>
           </Marker>
         )}
 
-        {/* Live Driver Marker (always rendered when driver is assigned / order is picked_up) */}
+        {/* Secondary Dashed Preview Route (Restaurant -> Customer before pickup / pre-driver) */}
+        {previewRouteCoords.length >= 2 && (
+          <Polyline
+            coordinates={previewRouteCoords}
+            strokeColor="rgba(82, 82, 91, 0.65)"
+            strokeWidth={3.5}
+            lineDashPattern={[8, 6]}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+        {/* Primary Highlighted Road Route Polyline (Casing + Inner Stroke) */}
+        {primaryRouteCoords.length >= 2 && (
+          <>
+            <Polyline
+              coordinates={primaryRouteCoords}
+              strokeColor={isPickedUpOrEnRoute ? '#064E3B' : '#18181B'}
+              strokeWidth={7.5}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={primaryRouteCoords}
+              strokeColor={isPickedUpOrEnRoute ? colors.success : colors.primary}
+              strokeWidth={4.5}
+              lineCap="round"
+              lineJoin="round"
+            />
+          </>
+        )}
+
+        {/* Smooth Animated & Rotated Live Driver Marker */}
         {!!effectiveDriverLocation && (
           <Marker
             coordinate={effectiveDriverLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat
+            rotation={Platform.OS === 'android' ? displayDriverHeading : 0}
+            tracksViewChanges={Platform.OS === 'ios' || isMarkerAnimating}
             title={
               order.driver_first_name
                 ? `${order.driver_first_name} (${order.status === 'picked_up' ? 'Order Picked Up' : 'Driver'})`
@@ -510,20 +711,35 @@ export default function TrackingScreen() {
                 : 'Live GPS Location'
             }
           >
-            <View style={[styles.markerDriver, isPickedUpOrEnRoute && styles.markerDriverActive]}>
-              <Ionicons name="bicycle" size={22} color="#fff" />
+            <View style={styles.driverMarkerWrap}>
+              <View
+                style={[
+                  styles.driverHeadingRing,
+                  Platform.OS === 'ios'
+                    ? { transform: [{ rotate: `${displayDriverHeading}deg` }] }
+                    : null,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.driverHeadingTip,
+                    isPickedUpOrEnRoute && styles.driverHeadingTipActive,
+                  ]}
+                />
+              </View>
+              <View style={[styles.markerDriver, isPickedUpOrEnRoute && styles.markerDriverActive]}>
+                <Ionicons
+                  name={
+                    String(order.driver_vehicle_type || '').toLowerCase().includes('car')
+                      ? 'car'
+                      : 'bicycle'
+                  }
+                  size={19}
+                  color="#fff"
+                />
+              </View>
             </View>
           </Marker>
-        )}
-
-        {/* Route Polyline between Driver and Customer */}
-        {!!effectiveDriverLocation && (
-          <Polyline
-            coordinates={[effectiveDriverLocation, userLocation]}
-            strokeColor={isPickedUpOrEnRoute ? colors.success : colors.primary}
-            strokeWidth={4}
-            lineDashPattern={[6, 6]}
-          />
         )}
       </MapView>
 
@@ -543,7 +759,7 @@ export default function TrackingScreen() {
           onPress={centerOnDriver}
           accessibilityLabel="Center on Driver"
         >
-          <Ionicons name="locate" size={22} color={colors.primary} />
+          <Ionicons name="locate" size={22} color={colors.primaryText} />
         </TouchableOpacity>
       </View>
 
@@ -581,9 +797,9 @@ export default function TrackingScreen() {
 
           {etaMinutes !== null && distanceKm !== null && (
             <View style={styles.etaBadge}>
-              <Ionicons name="time-outline" size={14} color={colors.primary} />
+              <Ionicons name="time-outline" size={14} color={colors.primaryText} />
               <Text style={styles.etaText}>
-                ~{etaMinutes} min ({distanceKm < 1 ? `${Math.round(distanceKm * 1000)}m` : `${distanceKm.toFixed(1)} km`})
+                ~{etaMinutes} min ({formatDistanceCompact(distanceKm)})
               </Text>
             </View>
           )}
@@ -692,7 +908,7 @@ export default function TrackingScreen() {
           </View>
         ) : (
           <View style={styles.waitingState}>
-            <ActivityIndicator color={colors.primary} size="small" />
+            <ActivityIndicator color={colors.primaryText} size="small" />
             <Text style={styles.waitingText}>
               {order.reassigned_at
                 ? 'Dispatch is assigning a new driver to your order...'
@@ -823,13 +1039,13 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   markerDriver: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#1A1A1A',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
+    borderWidth: 2.5,
     borderColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
@@ -839,6 +1055,32 @@ const styles = StyleSheet.create({
   },
   markerDriverActive: {
     backgroundColor: colors.success,
+  },
+  driverMarkerWrap: {
+    width: 58,
+    height: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverHeadingRing: {
+    position: 'absolute',
+    width: 58,
+    height: 58,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  driverHeadingTip: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 11,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#1A1A1A',
+  },
+  driverHeadingTipActive: {
+    borderBottomColor: colors.success,
   },
 
   /* --- Floating Header --- */
@@ -962,7 +1204,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
   },
   statusPillDefault: {
-    backgroundColor: '#FFF7ED',
+    backgroundColor: colors.primarySoft,
   },
   statusPillDot: {
     width: 7,
@@ -1171,7 +1413,7 @@ const styles = StyleSheet.create({
   },
   expiresText: {
     fontSize: 13,
-    color: colors.primary,
+    color: colors.primaryText,
     fontWeight: '600',
   },
   terminalCtaBtn: {

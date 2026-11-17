@@ -10,10 +10,12 @@ import {
   TouchableOpacityProps,
 } from 'react-native';
 import { colors } from '../../constants/colors';
+import { customerColors } from '../../constants/customerTheme';
 
 interface ButtonProps extends TouchableOpacityProps {
   title: string;
   variant?: 'primary' | 'secondary' | 'outline' | 'text';
+  tone?: 'default' | 'customer';
   size?: 'small' | 'medium' | 'large';
   loading?: boolean;
   disabled?: boolean;
@@ -26,6 +28,7 @@ interface ButtonProps extends TouchableOpacityProps {
 const Button: React.FC<ButtonProps> = ({
   title,
   variant = 'primary',
+  tone = 'default',
   size = 'medium',
   loading = false,
   disabled = false,
@@ -36,11 +39,15 @@ const Button: React.FC<ButtonProps> = ({
   style,
   ...props
 }) => {
+  const activePrimaryBg = tone === 'customer' ? customerColors.primary : colors.primary;
+  const activeOnPrimary = tone === 'customer' ? customerColors.onPrimary : colors.white;
+  const activeOutlineAccent = tone === 'customer' ? customerColors.primaryText : colors.primary;
+
   const getVariantStyles = () => {
     switch (variant) {
       case 'primary':
         return {
-          backgroundColor: disabled ? colors.gray300 : colors.primary,
+          backgroundColor: disabled ? colors.gray300 : activePrimaryBg,
           borderWidth: 0,
           borderColor: 'transparent',
         };
@@ -54,7 +61,7 @@ const Button: React.FC<ButtonProps> = ({
         return {
           backgroundColor: 'transparent',
           borderWidth: 2,
-          borderColor: disabled ? colors.gray300 : colors.primary,
+          borderColor: disabled ? colors.gray300 : activeOutlineAccent,
         };
       case 'text':
         return {
@@ -64,7 +71,7 @@ const Button: React.FC<ButtonProps> = ({
         };
       default:
         return {
-          backgroundColor: disabled ? colors.gray300 : colors.primary,
+          backgroundColor: disabled ? colors.gray300 : activePrimaryBg,
           borderWidth: 0,
           borderColor: 'transparent',
         };
@@ -74,14 +81,15 @@ const Button: React.FC<ButtonProps> = ({
   const getTextColor = () => {
     switch (variant) {
       case 'primary':
+        return disabled ? colors.gray600 : activeOnPrimary;
       case 'secondary':
         return colors.white;
       case 'outline':
-        return disabled ? colors.gray400 : colors.primary;
+        return disabled ? colors.gray400 : activeOutlineAccent;
       case 'text':
-        return disabled ? colors.gray400 : colors.primary;
+        return disabled ? colors.gray400 : activeOutlineAccent;
       default:
-        return colors.white;
+        return disabled ? colors.gray600 : activeOnPrimary;
     }
   };
 

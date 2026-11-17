@@ -60,7 +60,12 @@ export const driverService = {
     return api.put('/drivers/status', { status });
   },
 
-  async updateLocation(lat: number, lng: number, orderId?: string, extra?: { accuracy?: number | null; speed?: number | null }) {
+  async updateLocation(
+    lat: number,
+    lng: number,
+    orderId?: string,
+    extra?: { accuracy?: number | null; speed?: number | null; heading?: number | null }
+  ) {
     return api.put('/drivers/location', {
       lat,
       lng,

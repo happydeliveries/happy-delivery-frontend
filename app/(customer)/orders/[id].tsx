@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { orderService } from '../../../services/order';
 import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
 import { useCartStore } from '../../../store/cartStore';
@@ -388,7 +388,7 @@ export default function OrderDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={colors.primaryText} />
       </SafeAreaView>
     );
   }
@@ -402,6 +402,7 @@ export default function OrderDetailsScreen() {
           <Button 
             title="Back to Orders"
             onPress={() => router.push('/(customer)/orders')}
+            tone="customer"
             style={styles.backButton}
           />
         </View>
@@ -445,7 +446,7 @@ export default function OrderDetailsScreen() {
                   <Ionicons 
                     name={step.icon as any} 
                     size={16} 
-                    color={step.completed ? '#fff' : colors.gray400} 
+                    color={step.completed ? colors.onPrimary : colors.gray400} 
                   />
                 </View>
               </View>
@@ -544,7 +545,7 @@ export default function OrderDetailsScreen() {
                   <Ionicons
                     name={method.icon as any}
                     size={18}
-                    color={selectedPaymentMethod === method.key ? '#09A5DB' : colors.textSecondary}
+                    color={selectedPaymentMethod === method.key ? colors.primaryText : colors.textSecondary}
                   />
                   <Text
                     style={[
@@ -563,6 +564,7 @@ export default function OrderDetailsScreen() {
               onPress={handlePayNow}
               loading={paying}
               variant="primary"
+              tone="customer"
             />
           </View>
         )}
@@ -631,6 +633,7 @@ export default function OrderDetailsScreen() {
               title={order.status === 'picked_up' ? 'Track Driver Live on Map' : 'Open Live Map Tracking'}
               onPress={() => router.push(`/(customer)/orders/tracking?id=${order.id}`)}
               variant="primary"
+              tone="customer"
             />
             {(order.rescue_courier?.phone || order.driver_phone || order.support_phone || supportPhoneFallback) && (
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -759,14 +762,14 @@ export default function OrderDetailsScreen() {
           <Text style={styles.sectionTitle}>Delivery Details</Text>
           
           <View style={styles.detailRow}>
-            <Ionicons name="restaurant" size={20} color={colors.primary} />
+            <Ionicons name="restaurant" size={20} color={colors.primaryText} />
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Restaurant</Text>
               <Text style={styles.detailValue}>{order.restaurant_name}</Text>
               <Text style={styles.detailSubtext}>{order.restaurant_address}</Text>
               {order.restaurant_phone && (
                 <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.restaurant_phone}`)}>
-                  <Text style={[styles.detailSubtext, { color: colors.primary, fontWeight: '600' }]}>
+                  <Text style={[styles.detailSubtext, { color: colors.primaryText, fontWeight: '600' }]}>
                     {order.restaurant_phone}
                   </Text>
                 </TouchableOpacity>
@@ -798,7 +801,7 @@ export default function OrderDetailsScreen() {
             </View>
           ) : order.driver_first_name ? (
             <View style={styles.detailRow}>
-              <Ionicons name="person" size={20} color={colors.primary} />
+              <Ionicons name="person" size={20} color={colors.primaryText} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>
                   {order.reassigned_at ? 'Driver (Reassigned)' : 'Driver'}
@@ -808,7 +811,7 @@ export default function OrderDetailsScreen() {
                 </Text>
                 {order.driver_phone && (
                   <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.driver_phone}`)}>
-                    <Text style={[styles.detailSubtext, { color: colors.primary, fontWeight: '600' }]}>
+                    <Text style={[styles.detailSubtext, { color: colors.primaryText, fontWeight: '600' }]}>
                       📞 Call Driver ({order.driver_phone})
                     </Text>
                   </TouchableOpacity>
@@ -838,7 +841,7 @@ export default function OrderDetailsScreen() {
 
           {order.delivery_instructions && (
             <View style={styles.detailRow}>
-              <Ionicons name="information-circle" size={20} color={colors.primary} />
+              <Ionicons name="information-circle" size={20} color={colors.primaryText} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>Delivery Instructions</Text>
                 <Text style={styles.detailValue}>{order.delivery_instructions}</Text>
@@ -848,7 +851,7 @@ export default function OrderDetailsScreen() {
 
           {order.special_instructions && (
             <View style={styles.detailRow}>
-              <Ionicons name="clipboard" size={20} color={colors.primary} />
+              <Ionicons name="clipboard" size={20} color={colors.primaryText} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>Special Instructions</Text>
                 <Text style={styles.detailValue}>{order.special_instructions}</Text>
@@ -900,6 +903,7 @@ export default function OrderDetailsScreen() {
               title="View Live Tracking"
               onPress={() => router.push(`/(customer)/orders/tracking?id=${order.id}`)}
               variant="primary"
+              tone="customer"
               style={styles.actionButton}
             />
           </View>
@@ -912,6 +916,7 @@ export default function OrderDetailsScreen() {
               onPress={handleCancelOrder}
               loading={cancelling}
               variant="outline"
+              tone="customer"
               style={styles.actionButton}
             />
           </View>
@@ -923,6 +928,7 @@ export default function OrderDetailsScreen() {
               title="Reorder"
               onPress={handleReorder}
               variant="primary"
+              tone="customer"
               style={styles.actionButton}
             />
             {order.status === 'delivered' && (
@@ -938,6 +944,7 @@ export default function OrderDetailsScreen() {
                   setRatingModalVisible(true);
                 }}
                 variant="outline"
+                tone="customer"
                 style={styles.actionButton}
               />
             )}
@@ -984,15 +991,15 @@ export default function OrderDetailsScreen() {
                         paddingVertical: 7,
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: active ? colors.primary : '#E2E8F0',
-                        backgroundColor: active ? `${colors.primary}15` : '#F8FAFC',
+                        borderColor: active ? colors.primaryBorder : '#E2E8F0',
+                        backgroundColor: active ? colors.primarySoft : '#F8FAFC',
                       }}
                     >
                       <Text
                         style={{
                           fontSize: 12.5,
                           fontWeight: active ? '700' : '500',
-                          color: active ? colors.primary : colors.textSecondary,
+                          color: active ? colors.primaryText : colors.textSecondary,
                         }}
                       >
                         {preset}
@@ -1015,6 +1022,7 @@ export default function OrderDetailsScreen() {
                     title="Keep Order"
                     onPress={() => setCancelModalVisible(false)}
                     variant="outline"
+                    tone="customer"
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -1023,6 +1031,7 @@ export default function OrderDetailsScreen() {
                     onPress={handleConfirmCancelOrder}
                     loading={cancelling}
                     variant="primary"
+                    tone="customer"
                   />
                 </View>
               </View>
@@ -1083,6 +1092,7 @@ export default function OrderDetailsScreen() {
                   title="Cancel"
                   onPress={() => setRatingModalVisible(false)}
                   variant="outline"
+                  tone="customer"
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -1091,6 +1101,7 @@ export default function OrderDetailsScreen() {
                   onPress={handleSubmitRating}
                   loading={submittingRating}
                   variant="primary"
+                  tone="customer"
                 />
               </View>
             </View>
@@ -1347,7 +1358,7 @@ const styles = StyleSheet.create({
   },
   timelineDotCurrent: {
     borderWidth: 3,
-    borderColor: colors.primary + '40',
+    borderColor: colors.primaryBorder,
   },
   timelineLabel: {
     fontSize: 12,
@@ -1394,7 +1405,7 @@ const styles = StyleSheet.create({
   itemPrice: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   itemDetails: {
     marginLeft: 8,
@@ -1460,7 +1471,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   actionButtons: {
     padding: 20,
@@ -1498,7 +1509,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: colors.primary,
+    borderColor: colors.primaryBorder,
     elevation: 3,
   },
   paymentHeaderRow: {
@@ -1536,8 +1547,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   paymentMethodChipSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '12',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   paymentMethodChipText: {
     marginLeft: 6,
@@ -1546,7 +1557,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   paymentMethodChipTextSelected: {
-    color: '#09A5DB',
+    color: colors.primaryText,
     fontWeight: '700',
   },
   paystackBadgeLogo: {

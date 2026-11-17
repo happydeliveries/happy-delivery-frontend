@@ -60,6 +60,35 @@ export const orderService = {
     return api.get(`/orders/${orderId}/tracking`);
   },
 
+  async getOrderRoute(
+    orderId: string,
+    params?: { lat?: number; lng?: number; force?: boolean }
+  ) {
+    const query = new URLSearchParams();
+    if (params?.lat !== undefined && params?.lng !== undefined) {
+      query.set('lat', String(params.lat));
+      query.set('lng', String(params.lng));
+    }
+    if (params?.force) {
+      query.set('force', '1');
+    }
+    const qs = query.toString();
+    return api.get(`/orders/${orderId}/route${qs ? `?${qs}` : ''}`);
+  },
+
+  async getDirections(
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number }
+  ) {
+    const query = new URLSearchParams({
+      fromLat: String(from.latitude),
+      fromLng: String(from.longitude),
+      toLat: String(to.latitude),
+      toLng: String(to.longitude),
+    });
+    return api.get(`/routing/directions?${query.toString()}`);
+  },
+
   async cancelOrder(orderId: string, reason?: string) {
     return api.post(`/orders/${orderId}/cancel`, { reason });
   },

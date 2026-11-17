@@ -6,7 +6,7 @@ import {
   Image,
   TouchableOpacity,
 } from 'react-native';
-import { colors } from '../../constants/colors';
+import { customerColors as colors } from '../../constants/customerTheme';
 import { Feather } from '@expo/vector-icons';
 
 interface CartItemProps {
@@ -112,7 +112,7 @@ const CartItem: React.FC<CartItemProps> = ({ item, onRemove, onQuantityChange })
               style={styles.quantityButton}
               onPress={handleDecrease}
             >
-              <Feather name="minus" size={16} color={colors.primary} />
+              <Feather name="minus" size={16} color={colors.onPrimary} />
             </TouchableOpacity>
             
             <Text style={styles.quantityText}>{item.quantity}</Text>
@@ -121,7 +121,7 @@ const CartItem: React.FC<CartItemProps> = ({ item, onRemove, onQuantityChange })
               style={styles.quantityButton}
               onPress={handleIncrease}
             >
-              <Feather name="plus" size={16} color={colors.primary} />
+              <Feather name="plus" size={16} color={colors.onPrimary} />
             </TouchableOpacity>
           </View>
           
@@ -205,10 +205,12 @@ const styles = StyleSheet.create({
   quantityContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.gray100,
+    backgroundColor: colors.primarySoft,
     borderRadius: 20,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
   },
   quantityButton: {
     width: 24,
@@ -227,7 +229,7 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
 });
 

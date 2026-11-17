@@ -12,7 +12,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import CartItem from '../../../components/customer/CartItem';
 import Button from '../../../components/common/Button';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { useCartStore } from '../../../store/cartStore';
 import { useLocation } from '../../../hooks/useLocation';
 import { orderService } from '../../../services/order';
@@ -105,6 +105,7 @@ export default function CartScreen() {
             Add some delicious items from restaurants
           </Text>
           <Button
+            tone="customer"
             title="Browse Restaurants"
             onPress={() => router.push('/(customer)/home')}
             style={styles.emptyButton}
@@ -130,7 +131,7 @@ export default function CartScreen() {
       {/* Restaurant Info */}
       {restaurantName && (
         <View style={styles.restaurantInfo}>
-          <Ionicons name="restaurant" size={20} color={colors.primary} />
+          <Ionicons name="restaurant" size={20} color={colors.primaryText} />
           <Text style={styles.restaurantName} numberOfLines={1}>
             Ordering from: {restaurantName}
           </Text>
@@ -194,7 +195,7 @@ export default function CartScreen() {
             </Text>
           </View>
           {quoting ? (
-            <ActivityIndicator size="small" color={colors.primary} />
+            <ActivityIndicator size="small" color={colors.primaryText} />
           ) : (
             <Text style={styles.summaryValue}>R {total.deliveryFee.toFixed(2)}</Text>
           )}
@@ -214,6 +215,7 @@ export default function CartScreen() {
       {/* Checkout Button */}
       <View style={styles.checkoutContainer}>
         <Button
+          tone="customer"
           title={
             !isOpenNow
               ? 'Restaurant Closed'
@@ -270,8 +272,8 @@ const styles = StyleSheet.create({
   },
   viewMenuText: {
     fontSize: 14,
-    color: colors.primary,
-    fontWeight: '500',
+    color: colors.primaryText,
+    fontWeight: '600',
   },
   itemsContainer: {
     flex: 1,
@@ -339,7 +341,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   checkoutContainer: {
     padding: 20,

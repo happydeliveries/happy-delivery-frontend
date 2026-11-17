@@ -21,7 +21,7 @@ import {
   NormalizedCustomizationGroup,
   NormalizedOptionChoice,
 } from '../../../components/customer/MenuItem';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { restaurantService } from '../../../services/restaurant';
 import { useCartStore } from '../../../store/cartStore';
 import { useFeedbackStore } from '../../../store/feedbackStore';
@@ -318,7 +318,7 @@ export default function MenuItemDetailScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={colors.primaryText} />
         </View>
       </SafeAreaView>
     );
@@ -331,7 +331,7 @@ export default function MenuItemDetailScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.primary} />
+          <Ionicons name="chevron-back" size={24} color={colors.primaryText} />
         </TouchableOpacity>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Menu item not found</Text>
@@ -361,7 +361,7 @@ export default function MenuItemDetailScreen() {
           style={styles.headerBackButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.primary} />
+          <Ionicons name="chevron-back" size={24} color={colors.primaryText} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {menuItem.name}
@@ -431,7 +431,7 @@ export default function MenuItemDetailScreen() {
               )}
               {menuItem.is_popular && (
                 <View style={styles.popularPill}>
-                  <Ionicons name="flame" size={12} color="#9a3412" />
+                  <Ionicons name="flame" size={12} color={colors.primaryText} />
                   <Text style={styles.popularPillText}>Popular</Text>
                 </View>
               )}
@@ -573,7 +573,7 @@ export default function MenuItemDetailScreen() {
                                     : 'radio-button-off'
                                 }
                                 size={20}
-                                color={isSelected ? colors.primary : colors.gray400}
+                                color={isSelected ? colors.primaryText : colors.gray400}
                               />
                               <Text
                                 style={[
@@ -628,7 +628,7 @@ export default function MenuItemDetailScreen() {
                     <Ionicons
                       name="checkmark-circle"
                       size={14}
-                      color={colors.primary}
+                      color={colors.primaryText}
                     />
                     <Text style={styles.tagText}>{tag}</Text>
                   </View>
@@ -659,14 +659,14 @@ export default function MenuItemDetailScreen() {
                 style={styles.quantityButton}
                 onPress={handleDecrement}
               >
-                <Ionicons name="remove" size={20} color={colors.primary} />
+                <Ionicons name="remove" size={20} color={colors.primaryText} />
               </TouchableOpacity>
               <Text style={styles.quantityText}>{quantity}</Text>
               <TouchableOpacity
                 style={styles.quantityButton}
                 onPress={handleIncrement}
               >
-                <Ionicons name="add" size={20} color={colors.primary} />
+                <Ionicons name="add" size={20} color={colors.primaryText} />
               </TouchableOpacity>
             </View>
           </View>
@@ -698,6 +698,7 @@ export default function MenuItemDetailScreen() {
           }
           onPress={handleAddToCart}
           disabled={!menuItem.is_available}
+          tone="customer"
           style={styles.addButton}
         />
       </View>
@@ -843,7 +844,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#ffedd5',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
@@ -851,7 +852,7 @@ const styles = StyleSheet.create({
   popularPillText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9a3412',
+    color: colors.primaryText,
   },
   metaInfoPill: {
     flexDirection: 'row',
@@ -884,7 +885,7 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 20,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   originalPrice: {
     fontSize: 16,
@@ -1009,8 +1010,8 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   custOptionRowSelected: {
-    borderColor: colors.primary,
-    backgroundColor: '#f0fdf4',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   custOptionLeft: {
     flexDirection: 'row',
@@ -1024,7 +1025,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   custOptionNameSelected: {
-    color: colors.primary,
+    color: colors.primaryText,
     fontWeight: '700',
   },
   custOptionPrice: {
@@ -1044,9 +1045,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   ingredientText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   tagsList: {
     gap: 10,
@@ -1089,7 +1090,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryBorder,
   },
   quantityText: {
     fontSize: 16,
@@ -1132,7 +1133,7 @@ const styles = StyleSheet.create({
   totalPrice: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   addButton: {
     height: 48,

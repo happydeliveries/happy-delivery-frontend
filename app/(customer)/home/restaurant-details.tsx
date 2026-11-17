@@ -15,7 +15,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
 import MenuItem from '../../../components/customer/MenuItem';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { restaurantService } from '../../../services/restaurant';
 import { useCartStore } from '../../../store/cartStore';
 import { normalizeItemCategories } from '../../../utils/menuCategories';
@@ -247,7 +247,7 @@ export default function RestaurantDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={colors.primaryText} />
       </SafeAreaView>
     );
   }
@@ -258,6 +258,7 @@ export default function RestaurantDetailsScreen() {
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Restaurant not found</Text>
           <Button 
+            tone="customer"
             title="Go Back" 
             onPress={() => router.back()}
             style={styles.backButton}
@@ -302,7 +303,7 @@ export default function RestaurantDetailsScreen() {
               />
             ) : (
               <View style={[styles.logo, styles.logoPlaceholder]}>
-                <Ionicons name="fast-food" size={30} color={colors.primary} />
+                <Ionicons name="fast-food" size={30} color={colors.primaryText} />
               </View>
             )}
             
@@ -344,7 +345,7 @@ export default function RestaurantDetailsScreen() {
           </Text>
           
           <View style={styles.infoRow}>
-            <Ionicons name="location" size={20} color={colors.primary} />
+            <Ionicons name="location" size={20} color={colors.primaryText} />
             <Text style={styles.infoText}>{restaurant.address}</Text>
           </View>
           
@@ -353,8 +354,8 @@ export default function RestaurantDetailsScreen() {
               style={styles.infoRow}
               onPress={() => Linking.openURL(`tel:${restaurant.phone_number}`)}
             >
-              <Ionicons name="call" size={20} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.primary, fontWeight: '600' }]}>
+              <Ionicons name="call" size={20} color={colors.primaryText} />
+              <Text style={[styles.infoText, { color: colors.primaryText, fontWeight: '600' }]}>
                 {restaurant.phone_number}
               </Text>
             </TouchableOpacity>
@@ -535,7 +536,7 @@ const styles = StyleSheet.create({
   },
   cuisine: {
     fontSize: 14,
-    color: colors.primary,
+    color: colors.primaryText,
     marginBottom: 8,
   },
   statusRow: {
@@ -612,7 +613,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   categoryTextActive: {
-    color: '#fff',
+    color: colors.onPrimary,
+    fontWeight: '700',
   },
   menuContainer: {
     padding: 20,
@@ -654,22 +656,22 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: 'rgba(24, 24, 27, 0.14)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   floatingCartCountText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontWeight: '800',
     fontSize: 13,
   },
   floatingCartLabel: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontWeight: '800',
     fontSize: 16,
   },
   floatingCartPrice: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontWeight: '800',
     fontSize: 16,
   },

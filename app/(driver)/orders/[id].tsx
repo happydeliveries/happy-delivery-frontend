@@ -19,12 +19,24 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { colors } from '../../../constants/colors';
 import { driverService } from '../../../services/driver';
 import { orderService } from '../../../services/order';
 import { useSocket } from '../../../hooks/useSocket';
 import { useDriverAlertStore } from '../../../store/driverAlertStore';
+import {
+  parseCoordinates,
+  computeBearingDegrees,
+  trimRouteFromDriver,
+  pickNextTurnStep,
+  getManeuverIconName,
+  formatDistanceCompact,
+  formatStepMeters,
+  type LatLngCoord,
+  type OrderRouteData,
+} from '../../../utils/routing';
 
 type OrderItem = {
   id: string;
@@ -62,6 +74,7 @@ type Order = {
   delivery_address: string | { street: string; city: string; zip: string };
   items: OrderItem[];
   driver_id: string;
+  driver_location?: any;
   support_phone?: string | null;
   support_name?: string | null;
   failure_reason?: string | null;
@@ -98,18 +111,44 @@ export default function DriverOrderDetailsScreen() {
   const [manualCode, setManualCode] = useState('');
   const [scanLoading, setScanLoading] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
-  
+  const [driverCoordsState, setDriverCoordsState] = useState<LatLngCoord | null>(null);
+  const [driverHeading, setDriverHeading] = useState<number>(0);
+  const [routeData, setRouteData] = useState<OrderRouteData | null>(null);
+
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const lastRestPersistRef = useRef<number>(0);
   const lastSocketLocationRef = useRef<number>(0);
+  const lastRouteFetchAtRef = useRef<number>(0);
+  const lastDriverPointRef = useRef<LatLngCoord | null>(null);
+  const navMapRef = useRef<MapView | null>(null);
+  const hasFittedNavMapRef = useRef<boolean>(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const ACTIVE_NAV_STATUSES = ['accepted_by_driver', 'order_ready', 'picked_up', 'on_the_way', 'arrived'];
+
+  const fetchOrderRoute = async (coords?: LatLngCoord | null, force = false) => {
+    if (!id) return;
+    lastRouteFetchAtRef.current = Date.now();
+    try {
+      const response: any = await orderService.getOrderRoute(
+        id,
+        coords ? { lat: coords.latitude, lng: coords.longitude, force } : { force }
+      );
+      const payload: OrderRouteData | undefined = response?.data || response;
+      if (payload && Array.isArray(payload.reactNativeCoords)) {
+        setRouteData(payload);
+      }
+    } catch {
+      // Keep existing route/fallback quietly without LogBox noise
+    }
+  };
 
   // --- 1. Fetch Data ---
   useEffect(() => {
     fetchOrderDetails();
   }, [id]);
 
-  // Listen for real-time order status changes (e.g. manager marks order_ready or customer cancels)
+  // Listen for real-time order status changes and backend-pushed OSRM route updates
   useEffect(() => {
     if (!socket || !id) return;
     socket.emit('join_order', id);
@@ -119,6 +158,7 @@ export default function DriverOrderDetailsScreen() {
         if (['accepted_by_driver', 'cancelled', 'no_drivers_available', 'delivered', 'delivery_failed'].includes(nextStatus)) {
           useDriverAlertStore.getState().removeOrderAlert(id);
         }
+        hasFittedNavMapRef.current = false;
         fetchOrderDetails();
       }
     };
@@ -133,18 +173,46 @@ export default function DriverOrderDetailsScreen() {
         fetchOrderDetails();
       }
     };
+    const handleDriverLocationEcho = (payload: any) => {
+      const eventOrderId = String(payload?.orderId || payload?.order_id || id);
+      if (eventOrderId !== String(id)) return;
+      if (payload?.route && Array.isArray(payload.route.reactNativeCoords)) {
+        setRouteData((prev) => ({
+          ...(prev || {}),
+          ...payload.route,
+          previewRoute: payload.route.previewRoute ?? prev?.previewRoute ?? null,
+        }));
+      }
+    };
     socket.on('order_update', handleOrderUpdate);
     socket.on('order_unavailable', handleOrderUnavailable);
+    socket.on('driver_location', handleDriverLocationEcho);
     return () => {
       socket.off('order_update', handleOrderUpdate);
       socket.off('order_unavailable', handleOrderUnavailable);
+      socket.off('driver_location', handleDriverLocationEcho);
     };
   }, [socket, id]);
+
+  // Refresh OSRM route when order enters or switches between pickup/drop-off transit legs
+  useEffect(() => {
+    if (!order || !ACTIVE_NAV_STATUSES.includes(order.status)) {
+      setRouteData(null);
+      return;
+    }
+    hasFittedNavMapRef.current = false;
+    fetchOrderRoute(driverCoordsState || parseCoordinates(order.driver_location), true);
+  }, [order?.status, order?.id]);
 
   const fetchOrderDetails = async () => {
     try {
       const response: any = await driverService.getOrder(id);
-      setOrder(response.data || response);
+      const data = response.data || response;
+      setOrder(data);
+      const initialDriverPos = parseCoordinates(data?.driver_location);
+      if (initialDriverPos && !driverCoordsState) {
+        setDriverCoordsState(initialDriverPos);
+      }
     } catch (error) {
       const { showFriendlyError } = (await import('../../../store/feedbackStore')).useFeedbackStore.getState();
       showFriendlyError(error);
@@ -189,10 +257,36 @@ export default function DriverOrderDetailsScreen() {
     lng: number,
     accuracy?: number | null,
     speed?: number | null,
-    forceRest = false
+    forceRest = false,
+    heading?: number | null
   ) => {
     const now = Date.now();
     lastSocketLocationRef.current = now;
+
+    const nextCoord: LatLngCoord = { latitude: lat, longitude: lng };
+    const resolvedHeading =
+      heading !== null && heading !== undefined && Number.isFinite(heading) && heading >= 0
+        ? heading
+        : computeBearingDegrees(lastDriverPointRef.current, nextCoord) ?? 0;
+
+    lastDriverPointRef.current = nextCoord;
+    setDriverCoordsState(nextCoord);
+    setDriverHeading(resolvedHeading);
+
+    // Trim local route geometry smoothly behind the driver between OSRM refreshes
+    setRouteData((prev) => {
+      if (!prev || !Array.isArray(prev.reactNativeCoords) || prev.reactNativeCoords.length < 2) {
+        return prev;
+      }
+      return {
+        ...prev,
+        reactNativeCoords: trimRouteFromDriver(prev.reactNativeCoords, nextCoord),
+      };
+    });
+
+    if (order && ACTIVE_NAV_STATUSES.includes(order.status) && now - lastRouteFetchAtRef.current >= 35000) {
+      fetchOrderRoute(nextCoord);
+    }
 
     if (socket?.connected && order) {
       socket.emit('driver_location_update', {
@@ -201,6 +295,7 @@ export default function DriverOrderDetailsScreen() {
         location: [lng, lat],
         latitude: lat,
         longitude: lng,
+        heading: resolvedHeading,
         accuracy: accuracy ?? null,
         speed: speed ?? null,
       });
@@ -211,7 +306,11 @@ export default function DriverOrderDetailsScreen() {
     if (forceRest || now - lastRestPersistRef.current >= 15000) {
       lastRestPersistRef.current = now;
       driverService
-        .updateLocation(lat, lng, id, { accuracy: accuracy ?? null, speed: speed ?? null })
+        .updateLocation(lat, lng, id, {
+          accuracy: accuracy ?? null,
+          speed: speed ?? null,
+          heading: resolvedHeading,
+        })
         .catch(() => {});
     }
   };
@@ -242,7 +341,7 @@ export default function DriverOrderDetailsScreen() {
         // Still broadcast fallback restaurant location when picked_up so customer map works on emulators without GPS
         const fallback = await getCurrentDriverCoords();
         if (fallback && isMounted) {
-          broadcastDriverPosition(fallback.lat, fallback.lng, null, null, !socket?.connected);
+          broadcastDriverPosition(fallback.lat, fallback.lng, null, null, !socket?.connected, 0);
         }
         return;
       }
@@ -260,7 +359,7 @@ export default function DriverOrderDetailsScreen() {
       // Send an immediate GPS ping as soon as tracking starts
       const initialCoords = await getCurrentDriverCoords();
       if (initialCoords && isMounted) {
-        broadcastDriverPosition(initialCoords.lat, initialCoords.lng);
+        broadcastDriverPosition(initialCoords.lat, initialCoords.lng, null, null, false, 0);
       }
 
       locationSubscription.current = await Location.watchPositionAsync(
@@ -275,7 +374,9 @@ export default function DriverOrderDetailsScreen() {
               location.coords.latitude,
               location.coords.longitude,
               location.coords.accuracy,
-              location.coords.speed
+              location.coords.speed,
+              false,
+              location.coords.heading ?? 0
             );
           }
         }
@@ -521,6 +622,58 @@ export default function DriverOrderDetailsScreen() {
     }
   };
 
+  const isNavActiveOrder = Boolean(order && ACTIVE_NAV_STATUSES.includes(order.status));
+  const isDropoffLeg = Boolean(order && ['picked_up', 'on_the_way', 'arrived'].includes(order.status));
+  const navDriverCoords = driverCoordsState || routeData?.driverCoords || null;
+  const navRestaurantCoords = routeData?.restaurantCoords || parseCoordinates(order?.restaurant_location);
+  const navCustomerCoords = routeData?.customerCoords || parseCoordinates(order?.delivery_address);
+  const targetStopCoords = isDropoffLeg ? navCustomerCoords : navRestaurantCoords;
+
+  const activeRouteCoords: LatLngCoord[] =
+    routeData?.reactNativeCoords && routeData.reactNativeCoords.length >= 2
+      ? routeData.reactNativeCoords
+      : navDriverCoords && targetStopCoords
+      ? [navDriverCoords, targetStopCoords]
+      : [];
+
+  const fitNavMap = (force = false) => {
+    if (!navMapRef.current) return;
+    if (!force && hasFittedNavMapRef.current) return;
+
+    const coordsToFit: LatLngCoord[] = [];
+    if (activeRouteCoords.length >= 2) {
+      coordsToFit.push(...activeRouteCoords);
+    } else {
+      if (navDriverCoords) coordsToFit.push(navDriverCoords);
+      if (navRestaurantCoords) coordsToFit.push(navRestaurantCoords);
+      if (navCustomerCoords && isDropoffLeg) coordsToFit.push(navCustomerCoords);
+    }
+
+    if (coordsToFit.length >= 2) {
+      hasFittedNavMapRef.current = true;
+      navMapRef.current.fitToCoordinates(coordsToFit, {
+        edgePadding: { top: 88, right: 32, bottom: 32, left: 32 },
+        animated: true,
+      });
+    } else if (coordsToFit.length === 1) {
+      hasFittedNavMapRef.current = true;
+      navMapRef.current.animateToRegion(
+        {
+          latitude: coordsToFit[0].latitude,
+          longitude: coordsToFit[0].longitude,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        },
+        350
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!isNavActiveOrder || activeRouteCoords.length < 2) return;
+    fitNavMap(false);
+  }, [isNavActiveOrder, routeData?.leg, routeData?.reactNativeCoords?.length]);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -541,6 +694,8 @@ export default function DriverOrderDetailsScreen() {
   }
 
   const nextAction = getNextAction();
+  const nextTurnStep = pickNextTurnStep(routeData?.steps, navDriverCoords);
+  const initialNavFocus = navDriverCoords || targetStopCoords || navRestaurantCoords || navCustomerCoords;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -565,6 +720,131 @@ export default function DriverOrderDetailsScreen() {
             </Animated.View>
           )}
         </View>
+
+        {/* Live Road-Following Turn-by-Turn Route Card */}
+        {isNavActiveOrder && initialNavFocus && (
+          <View style={styles.navCard}>
+            <MapView
+              ref={navMapRef}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+              style={styles.navMap}
+              initialRegion={{
+                latitude: initialNavFocus.latitude,
+                longitude: initialNavFocus.longitude,
+                latitudeDelta: 0.025,
+                longitudeDelta: 0.025,
+              }}
+              onMapReady={() => fitNavMap(false)}
+            >
+              {/* Pre-pickup secondary preview route: Restaurant -> Customer */}
+              {!isDropoffLeg &&
+                routeData?.previewRoute?.reactNativeCoords &&
+                routeData.previewRoute.reactNativeCoords.length >= 2 && (
+                  <Polyline
+                    coordinates={routeData.previewRoute.reactNativeCoords}
+                    strokeColor="rgba(107, 114, 128, 0.55)"
+                    strokeWidth={3}
+                    lineDashPattern={[6, 6]}
+                  />
+                )}
+
+              {/* Active leg casing + highlighted road route */}
+              {activeRouteCoords.length >= 2 && (
+                <>
+                  <Polyline
+                    coordinates={activeRouteCoords}
+                    strokeColor={isDropoffLeg ? '#065F46' : '#1E3A8A'}
+                    strokeWidth={7}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                  <Polyline
+                    coordinates={activeRouteCoords}
+                    strokeColor={isDropoffLeg ? '#10B981' : '#3B82F6'}
+                    strokeWidth={4}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                </>
+              )}
+
+              {!!navRestaurantCoords && (
+                <Marker coordinate={navRestaurantCoords} title={order.restaurant_name || 'Pickup'}>
+                  <View style={[styles.stopPin, { backgroundColor: '#F59E0B' }]}>
+                    <Ionicons name="restaurant" size={13} color="#fff" />
+                  </View>
+                </Marker>
+              )}
+
+              {!!navCustomerCoords && (
+                <Marker coordinate={navCustomerCoords} title={order.customer_name || 'Drop-off'}>
+                  <View style={[styles.stopPin, { backgroundColor: '#18181B' }]}>
+                    <Ionicons name="home" size={13} color="#fff" />
+                  </View>
+                </Marker>
+              )}
+
+              {!!navDriverCoords && (
+                <Marker
+                  coordinate={navDriverCoords}
+                  title="Your Location"
+                  flat
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  rotation={Platform.OS === 'android' ? driverHeading : 0}
+                >
+                  <View
+                    style={[
+                      styles.driverPin,
+                      Platform.OS === 'ios'
+                        ? { transform: [{ rotate: `${driverHeading}deg` }] }
+                        : null,
+                    ]}
+                  >
+                    <Ionicons name="navigate" size={16} color="#fff" />
+                  </View>
+                </Marker>
+              )}
+            </MapView>
+
+            {/* Floating Turn-by-Turn Navigation Header */}
+            <View style={styles.navOverlayCard}>
+              <View style={styles.navManeuverIconBox}>
+                <Ionicons
+                  name={getManeuverIconName(nextTurnStep?.maneuverType, nextTurnStep?.modifier)}
+                  size={20}
+                  color="#FACC15"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.navInstructionText} numberOfLines={2}>
+                  {nextTurnStep?.instruction ||
+                    (isDropoffLeg ? 'Continue toward customer drop-off' : 'Head toward restaurant pickup')}
+                </Text>
+                <Text style={styles.navSubMetaText} numberOfLines={1}>
+                  {isDropoffLeg ? 'TO CUSTOMER' : 'TO PICKUP'}
+                  {nextTurnStep?.distanceMeters ? ` • ${formatStepMeters(nextTurnStep.distanceMeters)}` : ''}
+                </Text>
+              </View>
+              <View style={styles.navMetricsCol}>
+                <Text style={styles.navEtaValue}>
+                  {routeData?.durationMinutes ? `${routeData.durationMinutes}m` : '--'}
+                </Text>
+                <Text style={styles.navDistValue}>
+                  {formatDistanceCompact(routeData?.distanceKm)}
+                </Text>
+              </View>
+            </View>
+
+            {/* Recenter Map Control */}
+            <TouchableOpacity
+              style={styles.navRecenterBtn}
+              onPress={() => fitNavMap(true)}
+              accessibilityLabel="Fit active route"
+            >
+              <Ionicons name="expand-outline" size={16} color="#18181B" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* 1. Pick Up Section */}
         <View style={styles.card}>
@@ -1279,5 +1559,107 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: colors.textSecondary,
     fontWeight: '500',
+  },
+  navCard: {
+    height: 290,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.gray100,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  navMap: {
+    width: '100%',
+    height: '100%',
+  },
+  navOverlayCard: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(24, 24, 27, 0.94)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  navManeuverIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(250, 204, 21, 0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navInstructionText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 18,
+  },
+  navSubMetaText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#D4D4D8',
+    marginTop: 2,
+  },
+  navMetricsCol: {
+    alignItems: 'flex-end',
+    paddingLeft: 8,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  navEtaValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FACC15',
+  },
+  navDistValue: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#E4E4E7',
+  },
+  navRecenterBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  stopPin: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  driverPin: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
   },
 });

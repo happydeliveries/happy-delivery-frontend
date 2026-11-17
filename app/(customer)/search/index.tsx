@@ -22,6 +22,7 @@ import { useAddressStore, resolveEffectiveDiscoveryLocation } from '../../../sto
 import { useFeedbackStore } from '../../../store/feedbackStore';
 import { getFriendlyErrorMessage } from '../../../utils/errorMessages';
 import AddressPickerModal from '../../../components/customer/AddressPickerModal';
+import { customerTheme } from '../../../constants/customerTheme';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 48) / 2;
@@ -63,13 +64,15 @@ const normalizeTags = (raw: any): string[] => {
 
 // --- Theme ---
 const THEME = {
-  primary: '#FF6B35',
-  secondary: '#2D3436',
-  background: '#FAFAFA',
+  primary: customerTheme.accent,
+  primaryText: customerTheme.accentText,
+  primarySoft: customerTheme.accentSoft,
+  secondary: customerTheme.ink,
+  background: customerTheme.bg,
   card: '#FFFFFF',
-  text: '#2D3436',
-  subText: '#636E72',
-  border: '#F0F0F0',
+  text: customerTheme.ink,
+  subText: customerTheme.muted,
+  border: '#E5E7EB',
   success: '#00C896',
 };
 
@@ -358,7 +361,7 @@ export default function SearchScreen() {
           <View style={styles.foodFooter}>
             <Text style={styles.foodPrice}>R{displayPrice.toFixed(2)}</Text>
             <View style={styles.addBtn}>
-              <Ionicons name="add" size={16} color="#fff" />
+              <Ionicons name="add" size={16} color={THEME.secondary} />
             </View>
           </View>
         </View>
@@ -382,7 +385,7 @@ export default function SearchScreen() {
           onPress={() => setAddressModalVisible(true)}
           activeOpacity={0.8}
         >
-          <Ionicons name="location-sharp" size={14} color={THEME.primary} />
+          <Ionicons name="location-sharp" size={14} color={THEME.secondary} />
           <Text style={styles.areaPillText} numberOfLines={1}>
             Searching near: <Text style={{ fontWeight: '700' }}>{effectiveLocation.label}</Text>
             {effectiveLocation.subtitle ? ` (${effectiveLocation.subtitle})` : ''}
@@ -440,7 +443,7 @@ export default function SearchScreen() {
       {/* 3. Results Area */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={THEME.primary} />
+          <ActivityIndicator size="large" color={THEME.primaryText} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.resultsContent}>
@@ -503,9 +506,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: '#FFF7ED',
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: customerTheme.surfaceMuted,
     marginBottom: 8,
   },
   areaPillText: {
@@ -571,15 +574,17 @@ const styles = StyleSheet.create({
   restCard: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 12,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    elevation: 1,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
-  restImage: { width: 80, height: 80, borderRadius: 12, backgroundColor: '#eee' },
+  restImage: { width: 76, height: 76, borderRadius: 10, backgroundColor: '#eee' },
   restContent: { flex: 1, marginLeft: 12, justifyContent: 'center' },
   restHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   restName: { fontSize: 16, fontWeight: '700', color: THEME.text, flex: 1, marginRight: 8 },
@@ -593,22 +598,24 @@ const styles = StyleSheet.create({
   },
   ratingText: { color: '#fff', fontSize: 10, fontWeight: 'bold', marginRight: 2 },
   restMeta: { fontSize: 13, color: THEME.subText, marginBottom: 4 },
-  restCuisine: { fontSize: 12, color: THEME.primary, fontWeight: '600' },
+  restCuisine: { fontSize: 12, color: THEME.primaryText, fontWeight: '600' },
 
   // Food Grid
   foodGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  foodWrapper: { width: COLUMN_WIDTH, marginBottom: 16 },
+  foodWrapper: { width: COLUMN_WIDTH, marginBottom: 14 },
   foodCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 14,
     overflow: 'hidden',
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    elevation: 1,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
-  foodImage: { width: '100%', height: 120, resizeMode: 'cover' },
+  foodImage: { width: '100%', height: 114, resizeMode: 'cover' },
   foodContent: { padding: 12 },
   foodName: { fontSize: 14, fontWeight: '700', color: THEME.text, marginBottom: 4, height: 36 },
   foodRestaurant: { fontSize: 11, color: THEME.subText, marginBottom: 8 },

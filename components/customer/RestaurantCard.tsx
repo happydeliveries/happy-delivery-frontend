@@ -6,7 +6,7 @@ import {
   Image,
   TouchableOpacity,
 } from 'react-native';
-import { colors } from '../../constants/colors';
+import { customerColors as colors } from '../../constants/customerTheme';
 import { Feather } from '@expo/vector-icons';
 
 interface RestaurantCardProps {
@@ -106,7 +106,7 @@ const RestaurantCard: React.FC<RestaurantCardProps> = ({ restaurant, onPress }) 
         <View style={styles.footer}>
           {restaurant.distance_meters && (
             <View style={styles.distanceContainer}>
-              <Feather name="map-pin" size={14} color={colors.primary} />
+              <Feather name="map-pin" size={14} color={colors.primaryText} />
               <Text style={styles.distanceText}>{getDistanceText()}</Text>
             </View>
           )}
@@ -126,26 +126,28 @@ const RestaurantCard: React.FC<RestaurantCardProps> = ({ restaurant, onPress }) 
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.white,
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: 14,
+    marginBottom: 14,
     overflow: 'hidden',
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    elevation: 1,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
   },
-  imageContainer: { height: 150, position: 'relative' },
+  imageContainer: { height: 144, position: 'relative' },
   image: { width: '100%', height: '100%' },
   placeholderImage: { width: '100%', height: '100%', backgroundColor: colors.gray100, justifyContent: 'center', alignItems: 'center' },
-  statusBadge: { position: 'absolute', top: 12, right: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  statusBadge: { position: 'absolute', top: 10, right: 10, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
   statusText: { color: colors.white, fontSize: 12, fontWeight: '600' },
-  content: { padding: 16 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  name: { fontSize: 18, fontWeight: 'bold', color: colors.textPrimary, flex: 1, marginRight: 8 },
-  ratingContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.gray100, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  content: { padding: 14 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  name: { fontSize: 17, fontWeight: 'bold', color: colors.textPrimary, flex: 1, marginRight: 8 },
+  ratingContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.gray100, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   ratingText: { fontSize: 12, fontWeight: '600', color: colors.gray700, marginLeft: 4 },
-  cuisine: { fontSize: 14, color: colors.primary, fontWeight: '500', marginBottom: 8 },
+  cuisine: { fontSize: 14, color: colors.primaryText, fontWeight: '600', marginBottom: 8 },
   description: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: 12 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   distanceContainer: { flexDirection: 'row', alignItems: 'center' },

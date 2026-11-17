@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,36 +6,39 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import OrderCard from '../../../components/customer/OrderCard';
-import { colors } from '../../../constants/colors';
+import OrderCard, {
+  CustomerOrderSummary,
+  resolveOrderMediaUrl,
+} from '../../../components/customer/OrderCard';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { orderService } from '../../../services/order';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSocket } from '../../../hooks/useSocket';
 
-type Order = {
-  id: string;
-  order_number: string;
-  status: string;
-  payment_status?: string;
-  total_amount: number;
-  placed_at: string;
-  restaurant_name: string;
-  driver_first_name?: string;
-  driver_last_name?: string;
-};
+const TRACKING_STATUSES = ['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'];
+const ALL_ACTIVE_STATUSES = [
+  'pending',
+  'ordering_at_restaurant',
+  'order_ready',
+  ...TRACKING_STATUSES,
+];
+const CANCELLED_STATUSES = ['cancelled', 'no_drivers_available', 'delivery_failed'];
 
 export default function OrdersScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const socket = useSocket();
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<CustomerOrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
+  const [spotlightLogoFailed, setSpotlightLogoFailed] = useState(false);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!user) {
@@ -48,7 +51,7 @@ export default function OrdersScreen() {
       if (!silent) setLoading(true);
       const response = await orderService.getMyOrders();
       // API interceptor returns response.data directly; shape may be array or {orders:[...]}
-      const orderList: Order[] = Array.isArray(response)
+      const orderList: CustomerOrderSummary[] = Array.isArray(response)
         ? response
         : (response as any)?.orders ?? (response as any)?.data ?? [];
       setOrders(orderList);
@@ -88,175 +91,336 @@ export default function OrdersScreen() {
     fetchOrders();
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'delivered':
-        return colors.success;
-      case 'cancelled':
-      case 'no_drivers_available':
-      case 'delivery_failed':
-        return colors.error;
-      case 'pending':
-      case 'accepted_by_driver':
-        return colors.warning;
-      default:
-        return colors.info;
+  const counts = useMemo(() => {
+    let active = 0;
+    let delivered = 0;
+    let cancelled = 0;
+    for (const order of orders) {
+      if (ALL_ACTIVE_STATUSES.includes(order.status)) active++;
+      else if (order.status === 'delivered') delivered++;
+      else if (CANCELLED_STATUSES.includes(order.status)) cancelled++;
     }
+    return {
+      all: orders.length,
+      active,
+      delivered,
+      cancelled,
+    };
+  }, [orders]);
+
+  const filters = useMemo(
+    () => [
+      { key: 'all' as const, label: 'All', count: counts.all },
+      { key: 'active' as const, label: 'Active', count: counts.active },
+      { key: 'delivered' as const, label: 'Delivered', count: counts.delivered },
+      { key: 'cancelled' as const, label: 'Cancelled', count: counts.cancelled },
+    ],
+    [counts]
+  );
+
+  const trackingOrders = useMemo(
+    () => orders.filter((order) => TRACKING_STATUSES.includes(order.status)),
+    [orders]
+  );
+
+  const primaryTrackingOrder = useMemo(
+    () =>
+      trackingOrders.find((order) => order.status === 'picked_up') ||
+      trackingOrders.find((order) => ['on_the_way', 'arrived'].includes(order.status)) ||
+      trackingOrders[0],
+    [trackingOrders]
+  );
+
+  const spotlightLogoUri = useMemo(
+    () =>
+      resolveOrderMediaUrl(primaryTrackingOrder?.restaurant_logo) ||
+      resolveOrderMediaUrl(primaryTrackingOrder?.restaurant_cover),
+    [primaryTrackingOrder?.restaurant_logo, primaryTrackingOrder?.restaurant_cover]
+  );
+
+  useEffect(() => {
+    setSpotlightLogoFailed(false);
+  }, [spotlightLogoUri]);
+
+  const filteredOrders = useMemo(() => {
+    if (selectedFilter === 'all') return orders;
+    if (selectedFilter === 'active') {
+      return orders.filter((order) => ALL_ACTIVE_STATUSES.includes(order.status));
+    }
+    if (selectedFilter === 'cancelled') {
+      return orders.filter((order) => CANCELLED_STATUSES.includes(order.status));
+    }
+    return orders.filter((order) => order.status === selectedFilter);
+  }, [orders, selectedFilter]);
+
+  const subtitleText = useMemo(() => {
+    if (!user) return 'Sign in to track deliveries & revisit favorites';
+    if (orders.length === 0) return 'Your food journey starts here';
+    const parts: string[] = [];
+    if (counts.active > 0) parts.push(`${counts.active} active`);
+    parts.push(`${orders.length} total ${orders.length === 1 ? 'order' : 'orders'}`);
+    return parts.join(' • ');
+  }, [user, orders.length, counts.active]);
+
+  const renderSpotlightBanner = () => {
+    if (!primaryTrackingOrder || selectedFilter === 'delivered' || selectedFilter === 'cancelled') {
+      return null;
+    }
+
+    const isPickedUp = primaryTrackingOrder.status === 'picked_up';
+    const isEnRoute = ['on_the_way', 'arrived'].includes(primaryTrackingOrder.status);
+    const headline = isPickedUp
+      ? 'Order picked up • Driver is on the way'
+      : isEnRoute
+      ? 'Your courier is heading to you'
+      : 'Courier assigned • Watch live progress';
+
+    return (
+      <View style={styles.spotlightCard}>
+        <View style={styles.spotlightTopRow}>
+          <View style={styles.spotlightLogoBox}>
+            {spotlightLogoUri && !spotlightLogoFailed ? (
+              <Image
+                source={{ uri: spotlightLogoUri }}
+                style={styles.spotlightLogoImg}
+                resizeMode="cover"
+                onError={() => setSpotlightLogoFailed(true)}
+              />
+            ) : (
+              <Ionicons name="restaurant" size={20} color={colors.onPrimary} />
+            )}
+          </View>
+
+          <View style={styles.spotlightTextCol}>
+            <View style={styles.spotlightTagRow}>
+              <View style={styles.spotlightLivePill}>
+                <View style={styles.spotlightLiveDot} />
+                <Text style={styles.spotlightLiveText}>LIVE DELIVERY</Text>
+              </View>
+              {!!primaryTrackingOrder.order_number && (
+                <Text style={styles.spotlightOrderNum}>#{primaryTrackingOrder.order_number}</Text>
+              )}
+            </View>
+            <Text style={styles.spotlightTitle} numberOfLines={1}>
+              {primaryTrackingOrder.restaurant_name || 'Your Order'}
+            </Text>
+            <Text style={styles.spotlightSub}>{headline}</Text>
+          </View>
+        </View>
+
+        <View style={styles.spotlightActions}>
+          <TouchableOpacity
+            style={styles.spotlightPrimaryBtn}
+            onPress={() =>
+              router.push(`/(customer)/orders/tracking?id=${primaryTrackingOrder.id}`)
+            }
+            activeOpacity={0.85}
+          >
+            <Ionicons name="navigate" size={15} color={colors.onPrimary} />
+            <Text style={styles.spotlightPrimaryBtnText}>Track Live on Map</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.spotlightSecondaryBtn}
+            onPress={() => router.push(`/(customer)/orders/${primaryTrackingOrder.id}`)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.spotlightSecondaryBtnText}>Order Details</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
-  const getStatusText = (status: string) => {
-    return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  };
+  const renderEmptyState = () => {
+    const isFilteredEmpty = Boolean(user) && orders.length > 0 && selectedFilter !== 'all';
 
-  const filters = [
-    { key: 'all', label: 'All Orders' },
-    { key: 'active', label: 'Active' },
-    { key: 'delivered', label: 'Delivered' },
-    { key: 'cancelled', label: 'Cancelled' },
-  ];
+    return (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIllustration}>
+          <Ionicons
+            name={!user ? 'person-outline' : isFilteredEmpty ? 'filter-outline' : 'fast-food-outline'}
+            size={40}
+            color={colors.primaryText}
+          />
+        </View>
 
-  const trackingStatuses = ['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'];
-  const allActiveStatuses = ['pending', 'ordering_at_restaurant', 'order_ready', ...trackingStatuses];
-  const activeOrders = orders.filter(order => trackingStatuses.includes(order.status));
-  const primaryTrackingOrder =
-    activeOrders.find(order => order.status === 'picked_up') ||
-    activeOrders.find(order => ['on_the_way', 'arrived'].includes(order.status)) ||
-    activeOrders[0];
-
-  const filteredOrders = selectedFilter === 'all' 
-    ? orders 
-    : selectedFilter === 'active'
-      ? orders.filter(order => allActiveStatuses.includes(order.status))
-      : selectedFilter === 'cancelled'
-        ? orders.filter(order => ['cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status))
-        : orders.filter(order => order.status === selectedFilter);
-
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="receipt-outline" size={80} color={colors.gray300} />
-      <Text style={styles.emptyTitle}>
-        {!user ? 'Sign in to see your orders' : 'No orders yet'}
-      </Text>
-      <Text style={styles.emptySubtitle}>
-        {!user
-          ? 'Track deliveries, pay for orders, and reorder your favorites'
-          : selectedFilter === 'all'
-            ? 'Your order history will appear here'
-            : `No ${selectedFilter} orders found`}
-      </Text>
-      <TouchableOpacity 
-        style={styles.browseButton}
-        onPress={() => router.push(!user ? '/(auth)/login' : '/(customer)/home')}
-      >
-        <Text style={styles.browseButtonText}>
-          {!user ? 'Sign In' : 'Browse Restaurants'}
+        <Text style={styles.emptyTitle}>
+          {!user
+            ? 'Sign in to see your orders'
+            : isFilteredEmpty
+            ? `No ${selectedFilter} orders`
+            : 'No orders yet'}
         </Text>
-      </TouchableOpacity>
+
+        <Text style={styles.emptySubtitle}>
+          {!user
+            ? 'Track live deliveries, pay with Paystack, and quickly reorder your favorites.'
+            : isFilteredEmpty
+            ? `You do not have any ${selectedFilter} orders right now.`
+            : 'Once you place your first order, live updates and receipts will appear right here.'}
+        </Text>
+
+        <TouchableOpacity
+          style={styles.browseButton}
+          activeOpacity={0.85}
+          onPress={() => {
+            if (!user) {
+              router.push('/(auth)/login');
+            } else if (isFilteredEmpty) {
+              setSelectedFilter('all');
+            } else {
+              router.push('/(customer)/home');
+            }
+          }}
+        >
+          <Ionicons
+            name={!user ? 'log-in-outline' : isFilteredEmpty ? 'layers-outline' : 'compass-outline'}
+            size={18}
+            color={colors.onPrimary}
+          />
+          <Text style={styles.browseButtonText}>
+            {!user ? 'Sign In' : isFilteredEmpty ? 'Show All Orders' : 'Browse Restaurants'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderLoadingState = () => (
+    <View style={styles.loadingWrapper}>
+      <View style={styles.loadingTop}>
+        <ActivityIndicator size="small" color={colors.primaryText} />
+        <Text style={styles.loadingText}>Fetching your orders...</Text>
+      </View>
+      {[0, 1, 2].map((idx) => (
+        <View key={idx} style={styles.skeletonCard}>
+          <View style={styles.skeletonRow}>
+            <View style={styles.skeletonLogo} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <View style={styles.skeletonLineWide} />
+              <View style={styles.skeletonLineShort} />
+            </View>
+          </View>
+          <View style={styles.skeletonStrip} />
+        </View>
+      ))}
     </View>
   );
 
-  const cycleFilter = () => {
-    const idx = filters.findIndex(f => f.key === selectedFilter);
-    const next = filters[(idx + 1) % filters.length];
-    setSelectedFilter(next.key);
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Seamless Cream Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>My Orders</Text>
-        <TouchableOpacity onPress={cycleFilter} accessibilityLabel="Cycle order status filter">
-          <Ionicons name="filter" size={24} color={colors.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>My Orders</Text>
+          <Text style={styles.subtitle}>{subtitleText}</Text>
+        </View>
+
+        {counts.active > 0 ? (
+          <TouchableOpacity
+            style={styles.activeCountBadge}
+            onPress={() => setSelectedFilter('active')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.activeBadgeDot} />
+            <Text style={styles.activeCountText}>{counts.active} Active</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.refreshIconBtn}
+            onPress={onRefresh}
+            accessibilityLabel="Refresh orders"
+          >
+            <Ionicons name="refresh-outline" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Filter Tabs */}
+      {/* Filter Pills */}
       <View style={styles.filterContainer}>
         <FlatList
           horizontal
           data={filters}
-          keyExtractor={item => item.key}
+          keyExtractor={(item) => item.key}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterList}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedFilter === item.key && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedFilter(item.key)}
-            >
-              <Text style={[
-                styles.filterText,
-                selectedFilter === item.key && styles.filterTextActive,
-              ]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
+          renderItem={({ item }) => {
+            const active = selectedFilter === item.key;
+            return (
+              <TouchableOpacity
+                style={[styles.filterButton, active && styles.filterButtonActive]}
+                onPress={() => setSelectedFilter(item.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                  {item.label}
+                </Text>
+                {user && item.count > 0 && (
+                  <View style={[styles.filterCountPill, active && styles.filterCountPillActive]}>
+                    <Text
+                      style={[
+                        styles.filterCountText,
+                        active && styles.filterCountTextActive,
+                      ]}
+                    >
+                      {item.count}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          }}
         />
       </View>
 
-      {primaryTrackingOrder && selectedFilter !== 'delivered' && selectedFilter !== 'cancelled' ? (
-        <View style={styles.activeBanner}>
-          <Text style={styles.activeBannerTitle}>
-            {primaryTrackingOrder.status === 'picked_up'
-              ? 'Order Picked Up • Driver Live on Map'
-              : 'Active Delivery'}
-          </Text>
-          <Text style={styles.activeBannerText}>
-            {primaryTrackingOrder.status === 'picked_up'
-              ? `Your driver has picked up order ${primaryTrackingOrder.order_number || ''}. Watch your driver live on the map.`
-              : 'Track your active order live from here.'}
-          </Text>
-          <TouchableOpacity
-            style={styles.activeBannerButton}
-            onPress={() => router.push(`/(customer)/orders/tracking?id=${primaryTrackingOrder.id}`)}
-          >
-            <Text style={styles.activeBannerButtonText}>Track Live on Map</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {/* Orders List */}
+      {/* Orders Feed */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <Text>Loading orders...</Text>
-        </View>
+        renderLoadingState()
       ) : (
         <FlatList
           data={filteredOrders}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => router.push(`/(customer)/orders/${item.id}`)}
-            >
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={renderSpotlightBanner}
+          renderItem={({ item }) => {
+            const needsPayment =
+              item.status === 'ordering_at_restaurant' && item.payment_status !== 'completed';
+            const isTracking = TRACKING_STATUSES.includes(item.status);
+
+            return (
               <OrderCard
                 order={item}
                 actionLabel={
-                  item.status === 'ordering_at_restaurant' && item.payment_status !== 'completed'
-                    ? 'Pay with Paystack'
+                  needsPayment
+                    ? 'Pay Now'
                     : item.status === 'picked_up'
-                      ? 'Track Driver Live'
-                      : trackingStatuses.includes(item.status)
-                        ? 'Track Order'
-                        : 'View Details'
+                    ? 'Track Driver'
+                    : isTracking
+                    ? 'Track Order'
+                    : 'View Details'
                 }
+                onPress={() => router.push(`/(customer)/orders/${item.id}`)}
                 onActionPress={
-                  item.status === 'ordering_at_restaurant' && item.payment_status !== 'completed'
+                  needsPayment
                     ? () => router.push(`/(customer)/orders/${item.id}`)
-                    : trackingStatuses.includes(item.status)
-                      ? () => router.push(`/(customer)/orders/tracking?id=${item.id}`)
-                      : () => router.push(`/(customer)/orders/${item.id}`)
+                    : isTracking
+                    ? () => router.push(`/(customer)/orders/tracking?id=${item.id}`)
+                    : () => router.push(`/(customer)/orders/${item.id}`)
                 }
               />
-            </TouchableOpacity>
-          )}
+            );
+          }}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primaryText}
+              colors={[colors.primaryText, colors.primary]}
+            />
           }
           ListEmptyComponent={renderEmptyState}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </SafeAreaView>
@@ -273,109 +437,317 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#fff',
+    paddingTop: 10,
+    paddingBottom: 14,
+    backgroundColor: colors.background,
+  },
+  headerLeft: {
+    flex: 1,
+    marginRight: 12,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
     color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 13.5,
+    color: colors.muted,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  activeCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  activeBadgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
+  },
+  activeCountText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.primaryText,
+  },
+  refreshIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterContainer: {
-    backgroundColor: '#fff',
-    paddingVertical: 12,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   filterList: {
     paddingHorizontal: 20,
+    gap: 10,
   },
   filterButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.gray100,
-    marginRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   filterButtonActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primaryDark,
   },
   filterText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13.5,
+    fontWeight: '600',
     color: colors.textSecondary,
   },
   filterTextActive: {
-    color: '#fff',
+    color: colors.onPrimary,
+    fontWeight: '700',
+  },
+  filterCountPill: {
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 999,
+  },
+  filterCountPillActive: {
+    backgroundColor: 'rgba(24, 24, 27, 0.12)',
+  },
+  filterCountText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.muted,
+  },
+  filterCountTextActive: {
+    color: colors.onPrimary,
   },
   listContent: {
-    padding: 20,
-    paddingBottom: 100,
+    padding: 18,
+    paddingBottom: 110,
+    flexGrow: 1,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  spotlightCard: {
+    backgroundColor: colors.onPrimary,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  spotlightTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  spotlightLogoBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotlightLogoImg: {
+    width: '100%',
+    height: '100%',
+  },
+  spotlightTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  spotlightTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  spotlightLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 204, 0, 0.18)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  spotlightLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  spotlightLiveText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 0.5,
+  },
+  spotlightOrderNum: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: 'rgba(255, 251, 242, 0.65)',
+  },
+  spotlightTitle: {
+    fontSize: 16.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  spotlightSub: {
+    fontSize: 13,
+    color: 'rgba(255, 251, 242, 0.8)',
+  },
+  spotlightActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  spotlightPrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  spotlightPrimaryBtnText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.onPrimary,
+  },
+  spotlightSecondaryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotlightSecondaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#F5F5F5',
+  },
+  loadingWrapper: {
+    padding: 18,
+    gap: 14,
+  },
+  loadingTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  loadingText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  skeletonCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  skeletonLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceMuted,
+  },
+  skeletonLineWide: {
+    height: 14,
+    width: '68%',
+    borderRadius: 6,
+    backgroundColor: colors.surfaceMuted,
+  },
+  skeletonLineShort: {
+    height: 11,
+    width: '44%',
+    borderRadius: 5,
+    backgroundColor: colors.background,
+  },
+  skeletonStrip: {
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.background,
   },
   emptyContainer: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+    justifyContent: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 32,
+  },
+  emptyIllustration: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 2,
+    borderColor: colors.primaryBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: colors.textPrimary,
-    marginTop: 20,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
+    fontSize: 14.5,
+    color: colors.muted,
     textAlign: 'center',
-    marginBottom: 30,
+    lineHeight: 21,
+    marginBottom: 26,
   },
   browseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: colors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingHorizontal: 26,
+    paddingVertical: 14,
+    borderRadius: 999,
   },
   browseButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  activeBanner: {
-    backgroundColor: '#fff8f1',
-    borderRadius: 16,
-    padding: 18,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.primary + '20',
-  },
-  activeBannerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-    marginBottom: 6,
-  },
-  activeBannerText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 12,
-  },
-  activeBannerButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-  },
-  activeBannerButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
+    color: colors.onPrimary,
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

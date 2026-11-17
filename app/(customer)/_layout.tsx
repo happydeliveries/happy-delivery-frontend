@@ -1,10 +1,12 @@
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
-import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
-import { colors } from '../../constants/colors';
+import { StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { customerColors as colors } from '../../constants/customerTheme';
 import { useCartStore } from '../../store/cartStore';
 
 export default function CustomerLayout() {
+  const insets = useSafeAreaInsets();
   const cartCount = useCartStore((state) =>
     state.items.reduce((count, item) => count + item.quantity, 0)
   );
@@ -14,9 +16,15 @@ export default function CustomerLayout() {
       backBehavior="history"
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.gray500,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: 58 + insets.bottom,
+            paddingBottom: Math.max(insets.bottom, 8),
+          },
+        ],
+        tabBarActiveTintColor: colors.onPrimary,
+        tabBarInactiveTintColor: colors.muted,
         tabBarShowLabel: true,
         tabBarLabelStyle: styles.tabBarLabel,
       }}
@@ -29,9 +37,11 @@ export default function CustomerLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={(color ?? colors.primary) as string} />
-            </View>
+            <Ionicons
+              name={focused ? 'home' : 'home-outline'}
+              size={size}
+              color={(color ?? colors.onPrimary) as string}
+            />
           ),
         }}
       />
@@ -41,9 +51,11 @@ export default function CustomerLayout() {
         options={{
           title: 'Search',
           tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'search' : 'search-outline'} size={size} color={(color ?? colors.primary) as string} />
-            </View>
+            <Ionicons
+              name={focused ? 'search' : 'search-outline'}
+              size={size}
+              color={(color ?? colors.onPrimary) as string}
+            />
           ),
         }}
       />
@@ -53,9 +65,11 @@ export default function CustomerLayout() {
         options={{
           title: 'Orders',
           tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIcon : null}>
-              <MaterialIcons name="receipt-long" size={size} color={(color ?? colors.primary) as string} />
-            </View>
+            <Ionicons
+              name={focused ? 'receipt' : 'receipt-outline'}
+              size={size}
+              color={(color ?? colors.onPrimary) as string}
+            />
           ),
         }}
       />
@@ -65,11 +79,14 @@ export default function CustomerLayout() {
         options={{
           title: 'Cart',
           tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIcon : null}>
-              <Ionicons name={focused ? 'cart' : 'cart-outline'} size={size} color={(color ?? colors.primary) as string} />
-            </View>
+            <Ionicons
+              name={focused ? 'cart' : 'cart-outline'}
+              size={size}
+              color={(color ?? colors.onPrimary) as string}
+            />
           ),
           tabBarBadge: cartCount > 0 ? cartCount : undefined,
+          tabBarBadgeStyle: styles.cartBadge,
         }}
       />
 
@@ -78,9 +95,11 @@ export default function CustomerLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIcon : null}>
-              <Feather name="user" size={size} color={(color ?? colors.primary) as string} />
-            </View>
+            <Ionicons
+              name={focused ? 'person' : 'person-outline'}
+              size={size}
+              color={(color ?? colors.onPrimary) as string}
+            />
           ),
         }}
       />
@@ -109,20 +128,21 @@ export default function CustomerLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: '#fff',
-    borderTopColor: '#eee',
+    backgroundColor: '#FFFFFF',
+    borderTopColor: '#E5E7EB',
     borderTopWidth: 1,
-    height: 60,
-    paddingBottom: 8,
     paddingTop: 8,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   tabBarLabel: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 11.5,
+    fontWeight: '600',
     marginTop: 2,
   },
-  activeIcon: {
-    color: colors.primary + '20',
-    borderRadius: 20,
+  cartBadge: {
+    backgroundColor: colors.primary,
+    color: colors.onPrimary,
+    fontWeight: '700',
   },
 });

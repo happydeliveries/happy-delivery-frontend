@@ -20,7 +20,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { APP_CONFIG } from '../../../constants/config';
 import { useAuth } from '../../../hooks/useAuth';
 import { useLocation } from '../../../hooks/useLocation';
@@ -458,7 +458,7 @@ export default function ProfileScreen() {
 
           {user && (
             <TouchableOpacity style={styles.editButton} onPress={openEditProfile}>
-              <Feather name="edit-2" size={20} color={colors.primary} />
+              <Feather name="edit-2" size={20} color={colors.primaryText} />
             </TouchableOpacity>
           )}
         </View>
@@ -473,6 +473,7 @@ export default function ProfileScreen() {
               title="Sign In / Create Account"
               onPress={() => router.push('/(auth)/login')}
               variant="primary"
+              tone="customer"
             />
           </View>
         )}
@@ -481,7 +482,7 @@ export default function ProfileScreen() {
         {menuItems.map((section, sectionIndex) => (
           <View key={sectionIndex} style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name={section.icon as any} size={20} color={colors.primary} />
+              <Ionicons name={section.icon as any} size={20} color={colors.primaryText} />
               <Text style={styles.sectionTitle}>{section.title}</Text>
             </View>
 
@@ -521,7 +522,7 @@ export default function ProfileScreen() {
                 <Text style={styles.promoButtonText}>EXPLORE FOOD</Text>
               </TouchableOpacity>
             </View>
-            <Ionicons name="fast-food" size={56} color="#fff" style={styles.promoIcon} />
+            <Ionicons name="fast-food" size={56} color={colors.onPrimary} style={styles.promoIcon} />
           </View>
         </View>
 
@@ -577,11 +578,12 @@ export default function ProfileScreen() {
 
             <View style={styles.modalActions}>
               <View style={{ flex: 1 }}>
-                <Button title="Cancel" variant="outline" onPress={() => setActiveModal(null)} />
+                <Button title="Cancel" variant="outline" tone="customer" onPress={() => setActiveModal(null)} />
               </View>
               <View style={{ flex: 1 }}>
                 <Button
                   title={savingProfile ? 'Saving...' : 'Save Changes'}
+                  tone="customer"
                   loading={savingProfile}
                   onPress={handleSaveProfile}
                 />
@@ -612,7 +614,7 @@ export default function ProfileScreen() {
 
             <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
               {loadingAddresses ? (
-                <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
+                <ActivityIndicator color={colors.primaryText} style={{ marginVertical: 20 }} />
               ) : addresses.length > 0 ? (
                 addresses.map((addr, idx) => {
                   const keyId = addr.id || String(idx);
@@ -680,10 +682,10 @@ export default function ProfileScreen() {
                   disabled={locatingAddress}
                 >
                   {locatingAddress ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
+                    <ActivityIndicator size="small" color={colors.primaryText} />
                   ) : (
                     <>
-                      <Ionicons name="locate" size={14} color={colors.primary} />
+                      <Ionicons name="locate" size={14} color={colors.primaryText} />
                       <Text style={styles.gpsFillText}>Use GPS</Text>
                     </>
                   )}
@@ -719,6 +721,7 @@ export default function ProfileScreen() {
 
               <Button
                 title={savingAddress ? 'Saving...' : 'Save Address'}
+                tone="customer"
                 loading={savingAddress}
                 onPress={handleAddAddress}
               />
@@ -761,12 +764,12 @@ export default function ProfileScreen() {
                   <Ionicons
                     name={opt.icon}
                     size={22}
-                    color={active ? colors.primary : colors.textSecondary}
+                    color={active ? colors.primaryText : colors.textSecondary}
                   />
                   <Text style={[styles.paymentChoiceText, active && styles.paymentChoiceTextActive]}>
                     {opt.label}
                   </Text>
-                  {active && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
+                  {active && <Ionicons name="checkmark-circle" size={22} color={colors.primaryText} />}
                 </TouchableOpacity>
               );
             })}
@@ -796,10 +799,10 @@ export default function ProfileScreen() {
               style={styles.contactRow}
               onPress={() => Linking.openURL('mailto:support@happydeliveries.co.za')}
             >
-              <Ionicons name="mail-outline" size={20} color={colors.primary} />
+              <Ionicons name="mail-outline" size={20} color={colors.primaryText} />
               <Text style={styles.contactLink}>support@happydeliveries.co.za</Text>
             </TouchableOpacity>
-            <Button title="Close" onPress={() => setActiveModal(null)} variant="outline" />
+            <Button title="Close" onPress={() => setActiveModal(null)} variant="outline" tone="customer" />
           </View>
         </View>
       </Modal>
@@ -820,7 +823,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.modalBody}>{renderInfoModalContent().body}</Text>
-            <Button title="Got It" onPress={() => setActiveModal(null)} />
+            <Button title="Got It" tone="customer" onPress={() => setActiveModal(null)} />
           </View>
         </View>
       </Modal>
@@ -865,7 +868,7 @@ const styles = StyleSheet.create({
   profileInitials: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: colors.onPrimary,
   },
   profileDetails: {
     flex: 1,
@@ -966,17 +969,17 @@ const styles = StyleSheet.create({
   promoTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#fff',
+    color: colors.onPrimary,
     marginBottom: 4,
   },
   promoText: {
     fontSize: 14,
-    color: '#fff',
-    opacity: 0.92,
+    color: colors.onPrimary,
+    opacity: 0.85,
     marginBottom: 16,
   },
   promoButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.onPrimary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
@@ -1097,8 +1100,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addrPillBtnActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#FFF3E8',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   addrPillBtnText: {
     fontSize: 11.5,
@@ -1106,7 +1109,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   addrPillBtnTextActive: {
-    color: colors.primary,
+    color: colors.primaryText,
     fontWeight: '700',
   },
   emptyAddressText: {
@@ -1131,7 +1134,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1139,7 +1142,7 @@ const styles = StyleSheet.create({
   gpsFillText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   paymentChoice: {
     flexDirection: 'row',
@@ -1152,8 +1155,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   paymentChoiceActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   paymentChoiceText: {
     flex: 1,
@@ -1162,7 +1165,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   paymentChoiceTextActive: {
-    color: colors.primary,
+    color: colors.primaryText,
   },
   contactRow: {
     flexDirection: 'row',
@@ -1176,6 +1179,6 @@ const styles = StyleSheet.create({
   contactLink: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
 });

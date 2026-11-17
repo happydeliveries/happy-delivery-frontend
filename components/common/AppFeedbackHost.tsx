@@ -10,15 +10,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFeedbackStore, FeedbackType } from '../../store/feedbackStore';
-import { colors } from '../../constants/colors';
+import { customerColors as colors } from '../../constants/customerTheme';
 
 const ICON_CONFIG: Record<
   FeedbackType,
   { name: keyof typeof Ionicons.glyphMap; bg: string; tint: string }
 > = {
   info: { name: 'information-circle-outline', bg: '#EFF6FF', tint: '#2563EB' },
-  warning: { name: 'location-outline', bg: '#FFF7ED', tint: '#EA580C' },
-  error: { name: 'alert-circle-outline', bg: '#FFF1F2', tint: '#E11D48' },
+  warning: { name: 'location-outline', bg: colors.primarySoft, tint: colors.primaryText },
+  error: { name: 'alert-circle-outline', bg: colors.primarySoft, tint: colors.primaryText },
   success: { name: 'checkmark-circle-outline', bg: '#ECFDF5', tint: '#16A34A' },
 };
 
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   toastActionBtn: {
-    backgroundColor: '#FFF3E8',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   toastActionText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   toastCloseBtn: {
     padding: 4,
@@ -261,6 +261,6 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.onPrimary,
   },
 });

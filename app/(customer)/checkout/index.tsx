@@ -22,7 +22,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useLocation } from '../../../hooks/useLocation';
 import { useAddressStore, formatAddressSummary } from '../../../store/addressStore';
 import { useFeedbackStore } from '../../../store/feedbackStore';
-import { colors } from '../../../constants/colors';
+import { customerColors as colors } from '../../../constants/customerTheme';
 import { getDeliveryTierLabel } from '../../../constants/deliveryPricing';
 
 type SavedAddress = {
@@ -537,7 +537,7 @@ export default function CheckoutScreen() {
           
           {/* Restaurant Summary */}
           <View style={styles.restaurantBanner}>
-            <Ionicons name="restaurant" size={20} color={colors.primary} />
+            <Ionicons name="restaurant" size={20} color={colors.primaryText} />
             <Text style={styles.restaurantName}>Ordering from {restaurantName}</Text>
           </View>
 
@@ -551,10 +551,10 @@ export default function CheckoutScreen() {
                 disabled={locating}
               >
                 {locating ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
+                  <ActivityIndicator size="small" color={colors.primaryText} />
                 ) : (
                   <>
-                    <Ionicons name="locate" size={16} color={colors.primary} />
+                    <Ionicons name="locate" size={16} color={colors.primaryText} />
                     <Text style={styles.gpsButtonText}>Use GPS</Text>
                   </>
                 )}
@@ -579,7 +579,7 @@ export default function CheckoutScreen() {
                       <Ionicons
                         name="bookmark"
                         size={13}
-                        color={active ? '#fff' : colors.primary}
+                        color={active ? colors.onPrimary : colors.primaryText}
                       />
                       <Text style={[styles.savedChipText, active && styles.savedChipTextActive]}>
                         {saved.label || saved.street}
@@ -649,7 +649,7 @@ export default function CheckoutScreen() {
               {/* Live Radial Distance & Delivery Area Feedback */}
               {quotingDelivery ? (
                 <View style={styles.quoteBannerNeutral}>
-                  <ActivityIndicator size="small" color={colors.primary} />
+                  <ActivityIndicator size="small" color={colors.primaryText} />
                   <Text style={styles.quoteBannerNeutralText}>
                     Checking restaurant distance & delivery fee...
                   </Text>
@@ -683,7 +683,7 @@ export default function CheckoutScreen() {
                   <Ionicons
                     name={saveAddressForLater ? 'checkbox' : 'square-outline'}
                     size={20}
-                    color={colors.primary}
+                    color={colors.primaryText}
                   />
                   <Text style={styles.saveAddressText}>Save this address to my profile</Text>
                 </TouchableOpacity>
@@ -704,10 +704,10 @@ export default function CheckoutScreen() {
                 onPress={() => setPaymentMethod('card')}
               >
                 <View style={styles.paymentRow}>
-                  <Ionicons name="card-outline" size={24} color={paymentMethod === 'card' ? colors.primary : colors.textSecondary} />
+                  <Ionicons name="card-outline" size={24} color={paymentMethod === 'card' ? colors.primaryText : colors.textSecondary} />
                   <Text style={[styles.paymentText, paymentMethod === 'card' && styles.paymentTextSelected]}>Debit / Credit Card</Text>
                 </View>
-                {paymentMethod === 'card' && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
+                {paymentMethod === 'card' && <Ionicons name="checkmark-circle" size={22} color={colors.primaryText} />}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -715,10 +715,10 @@ export default function CheckoutScreen() {
                 onPress={() => setPaymentMethod('mobile_money')}
               >
                 <View style={styles.paymentRow}>
-                  <Ionicons name="qr-code-outline" size={24} color={paymentMethod === 'mobile_money' ? colors.primary : colors.textSecondary} />
+                  <Ionicons name="qr-code-outline" size={24} color={paymentMethod === 'mobile_money' ? colors.primaryText : colors.textSecondary} />
                   <Text style={[styles.paymentText, paymentMethod === 'mobile_money' && styles.paymentTextSelected]}>Instant EFT / SnapScan / QR</Text>
                 </View>
-                {paymentMethod === 'mobile_money' && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
+                {paymentMethod === 'mobile_money' && <Ionicons name="checkmark-circle" size={22} color={colors.primaryText} />}
               </TouchableOpacity>
             </View>
           </View>
@@ -877,7 +877,7 @@ export default function CheckoutScreen() {
             disabled={loading || quotingDelivery || !isOpenNow || !deliverable}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.placeOrderText}>
                 {!isOpenNow
@@ -912,12 +912,14 @@ const styles = StyleSheet.create({
   restaurantBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
     padding: 12,
     borderRadius: 8,
     marginBottom: 20,
   },
-  restaurantName: { marginLeft: 8, color: colors.primary, fontWeight: '600' },
+  restaurantName: { marginLeft: 8, color: colors.primaryText, fontWeight: '600' },
 
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: colors.textPrimary, marginBottom: 8 },
@@ -959,12 +961,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   paymentOptionSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '05',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   paymentRow: { flexDirection: 'row', alignItems: 'center' },
   paymentText: { marginLeft: 12, fontSize: 14, color: colors.textPrimary },
-  paymentTextSelected: { fontWeight: '600', color: colors.primary },
+  paymentTextSelected: { fontWeight: '600', color: colors.primaryText },
 
   // Summary
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
@@ -972,7 +974,7 @@ const styles = StyleSheet.create({
   summaryValue: { fontWeight: '500', color: colors.textPrimary, fontSize: 14 },
   totalRow: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
   totalLabel: { fontSize: 16, fontWeight: 'bold', color: colors.textPrimary },
-  totalValue: { fontSize: 18, fontWeight: 'bold', color: colors.primary },
+  totalValue: { fontSize: 18, fontWeight: 'bold', color: colors.primaryText },
 
   // Footer
   footer: {
@@ -994,7 +996,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   disabledBtn: { opacity: 0.7 },
-  placeOrderText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  placeOrderText: { color: colors.onPrimary, fontWeight: 'bold', fontSize: 16 },
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1005,7 +1007,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1013,7 +1015,7 @@ const styles = StyleSheet.create({
   gpsButtonText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   savedAddressChips: {
     gap: 8,
@@ -1025,21 +1027,22 @@ const styles = StyleSheet.create({
     gap: 5,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryBorder,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 20,
   },
   savedChipActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   savedChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   savedChipTextActive: {
-    color: '#fff',
+    color: colors.onPrimary,
   },
   saveAddressRow: {
     flexDirection: 'row',
@@ -1053,7 +1056,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tipBadge: {
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1061,7 +1064,7 @@ const styles = StyleSheet.create({
   tipBadgeText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
   },
   tipGrid: {
     flexDirection: 'row',
@@ -1096,7 +1099,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   tipChipTextActive: {
-    color: '#fff',
+    color: colors.onPrimary,
   },
   customTipWrapper: {
     marginTop: 14,
@@ -1109,7 +1112,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryBorder,
     borderRadius: 10,
     paddingHorizontal: 12,
     height: 46,
@@ -1117,7 +1120,7 @@ const styles = StyleSheet.create({
   currencyPrefix: {
     fontSize: 16,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.primaryText,
     marginRight: 8,
   },
   customTipInput: {
@@ -1127,7 +1130,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   tipSummaryValue: {
-    color: colors.primary,
+    color: colors.primaryText,
     fontWeight: '700',
   },
   summarySubLabel: {

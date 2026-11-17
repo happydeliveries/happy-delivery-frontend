@@ -11,10 +11,11 @@ import {
   Dimensions,
   Animated,
   Easing,
-  Platform,
   ActivityIndicator,
+  Modal,
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
@@ -30,37 +31,36 @@ import { restaurantService } from '../../../services/restaurant';
 import { orderService } from '../../../services/order';
 import { APP_CONFIG } from '../../../constants/config';
 import { useAddressStore, resolveEffectiveDiscoveryLocation } from '../../../store/addressStore';
+import { useCartStore } from '../../../store/cartStore';
 import { useFeedbackStore } from '../../../store/feedbackStore';
 import { getFriendlyErrorMessage } from '../../../utils/errorMessages';
 import AddressPickerModal from '../../../components/customer/AddressPickerModal';
+import { customerTheme } from '../../../constants/customerTheme';
 
 // --- THEME ---
 const THEME = {
-  primary: '#FFCC00',
-  primaryLight: 'rgba(255, 107, 53, 0.1)',
-  primaryAccent: '#FF6B35',
-  secondary: '#1A1A1A',
+  primary: customerTheme.accent,
+  primaryLight: customerTheme.accentSoft,
+  primaryAccent: customerTheme.accentText,
+  secondary: customerTheme.ink,
   success: '#00C896',
   warning: '#FFD166',
   danger: '#FF4757',
-  background: '#FFFBF2',
-  card: '#FFFFFF',
-  textLight: '#8E8E93',
-  border: '#E5E5E5',
-  shadow: 'rgba(0, 0, 0, 0.08)',
+  background: customerTheme.bg,
+  card: customerTheme.surface,
+  surfaceMuted: customerTheme.surfaceMuted,
+  textLight: customerTheme.muted,
+  border: customerTheme.border,
+  shadow: 'rgba(24, 24, 27, 0.08)',
   accent: '#5E35B1',
-  gradientStart: '#FF6B35',
-  gradientEnd: '#FF3366',
+  gradientStart: customerTheme.accent,
+  gradientEnd: customerTheme.accentDark,
 };
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = width * 0.72;
-const CUBE_SIZE = 136;
-const RESTAURANT_CARD_HEIGHT = 320;
-
-// --- FIXED HEADER CONSTANTS ---
-const HEADER_EXPANDED_HEIGHT = Platform.OS === 'ios' ? 158 : 172;
-const HEADER_COLLAPSED_HEIGHT = Platform.OS === 'ios' ? 126 : 140;
+const CARD_WIDTH = width * 0.7;
+const DISH_CARD_WIDTH = 164;
+const BANNER_LOGO_SIZE = Math.min(122, Math.max(96, Math.round(width * 0.27)));
 
 const ACTIVE_ORDER_STATUSES = [
   'pending',
@@ -168,12 +168,16 @@ const restaurantMatchesCategory = (
 
 export default function CustomerHomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { location, locationStatus } = useLocation();
   const { user } = useAuth();
   const socket = useSocket();
   const addressMode = useAddressStore((s) => s.mode);
   const selectedAddress = useAddressStore((s) => s.selectedAddress);
   const savedAddresses = useAddressStore((s) => s.savedAddresses);
+  const cartCount = useCartStore((s) =>
+    s.items.reduce((count, item) => count + item.quantity, 0)
+  );
   const showToast = useFeedbackStore((s) => s.showToast);
 
   // --- State ---
@@ -188,27 +192,19 @@ export default function CustomerHomeScreen() {
   const [activeOrder, setActiveOrder] = useState<any | null>(null);
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [addressPickerVisible, setAddressPickerVisible] = useState(false);
+  const [quickMenuVisible, setQuickMenuVisible] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [scrollY] = useState(new Animated.Value(0));
 
   // --- Animations ---
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
-  const floatingAnim = useRef(new Animated.Value(0)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
   const loadingAnim = useRef(new Animated.Value(0)).current;
 
   const fetchedRef = useRef(false);
   const categoryReqIdRef = useRef(0);
-
-  const headerHeight = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [HEADER_EXPANDED_HEIGHT, HEADER_COLLAPSED_HEIGHT],
-    extrapolate: 'clamp',
-  });
 
   const effectiveLocation = useMemo(
     () =>
@@ -253,7 +249,7 @@ export default function CustomerHomeScreen() {
       AsyncStorage.setItem(
         APP_CONFIG.STORAGE_KEYS.FAVORITE_RESTAURANTS,
         JSON.stringify(Array.from(next))
-      ).catch(() => {});
+      ).catch(() => { });
       return next;
     });
   };
@@ -484,32 +480,6 @@ export default function CustomerHomeScreen() {
           useNativeDriver: true,
         }),
       ]).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(floatingAnim, {
-            toValue: 1,
-            duration: 2000,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(floatingAnim, {
-            toValue: 0,
-            duration: 2000,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-
-      Animated.loop(
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 1500,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      ).start();
     }
   }, [loading]);
 
@@ -614,12 +584,6 @@ export default function CustomerHomeScreen() {
     return [allChip, ...foodCategories];
   }, [foodCategories, restaurants.length]);
 
-  const userInitials = useMemo(() => {
-    const first = user?.first_name?.trim()?.[0] || '';
-    const last = user?.last_name?.trim()?.[0] || '';
-    return (first + last).toUpperCase() || 'G';
-  }, [user?.first_name, user?.last_name]);
-
   // --- Render Helpers ---
   const renderFoodCategory = ({ item }: { item: FoodCategory }) => {
     const isAll = item.slug === '__all__';
@@ -645,7 +609,7 @@ export default function CustomerHomeScreen() {
           <MaterialCommunityIcons
             name={isAll ? 'apps' : getFoodCategoryIcon(item.name)}
             size={20}
-            color={isSelected ? '#1A1A1A' : THEME.primaryAccent}
+            color={isSelected ? THEME.secondary : '#4B5563'}
           />
         </View>
         <View style={styles.categoryPillTextWrap}>
@@ -671,12 +635,7 @@ export default function CustomerHomeScreen() {
     );
   };
 
-  const renderPopularCard = ({ item, index }: { item: Restaurant; index: number }) => {
-    const translateY = floatingAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, index % 2 === 0 ? -3 : 3],
-    });
-
+  const renderPopularCard = ({ item }: { item: Restaurant; index: number }) => {
     const cuisineArray = normalizeStringArray(item.cuisine_type, ['Food']);
     const isFav = favoriteIds.has(item.id);
     const isClosed = item.is_accepting_orders === false;
@@ -691,22 +650,10 @@ export default function CustomerHomeScreen() {
           style={[
             styles.restaurantCard,
             {
-              transform: [{ translateY }, { scale: scaleAnim }],
+              transform: [{ scale: scaleAnim }],
             },
           ]}
         >
-          <Animated.View
-            style={[
-              styles.cardGlow,
-              {
-                opacity: shimmerAnim.interpolate({
-                  inputRange: [0, 0.5, 1],
-                  outputRange: [0.1, 0.2, 0.1],
-                }),
-              },
-            ]}
-          />
-
           <View style={styles.cardImageContainer}>
             <Image
               source={{
@@ -758,7 +705,7 @@ export default function CustomerHomeScreen() {
               </View>
             </View>
 
-            <Text style={styles.cardDescription} numberOfLines={2}>
+            <Text style={styles.cardDescription} numberOfLines={1}>
               {item.description || 'Freshly prepared meals delivered fast'}
             </Text>
 
@@ -787,67 +734,61 @@ export default function CustomerHomeScreen() {
         : 0;
     const displayPrice = hasDiscount ? (discPrice as number) : basePrice;
 
-    const cardScale = floatingAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 0.98],
-    });
-
     return (
       <TouchableOpacity
-        activeOpacity={0.95}
+        activeOpacity={0.92}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           router.push(`/(customer)/menu/${item.id}?restaurantId=${item.restaurant_id}`);
         }}
         style={styles.cubeContainer}
       >
-        <Animated.View style={[styles.cubeCard, { transform: [{ scale: cardScale }] }]}>
-          <Image
-            source={{
-              uri:
-                item.image_url ||
-                'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=500&q=80&auto=format&fit=crop',
-            }}
-            style={styles.cubeImage}
-          />
-          <View style={styles.cubeOverlay} />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.85)']}
-            style={styles.cubeGradient}
-          />
+        <View style={styles.cubeCard}>
+          <View style={styles.cubeImageWrapper}>
+            <Image
+              source={{
+                uri:
+                  item.image_url ||
+                  'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=500&q=80&auto=format&fit=crop',
+              }}
+              style={styles.cubeImage}
+            />
 
-          <View style={styles.cubeTopBadges}>
-            <View style={styles.popularBadge}>
-              <Ionicons name="flame" size={11} color="#1A1A1A" />
-              <Text style={styles.popularBadgeText}>Popular</Text>
-            </View>
-            {discountPercent > 0 && (
-              <View style={styles.cubeDiscountBadge}>
-                <Text style={styles.cubeDiscountText}>-{discountPercent}%</Text>
+            <View style={styles.cubeTopBadges}>
+              <View style={styles.popularBadge}>
+                <Ionicons name="flame" size={11} color="#18181B" />
+                <Text style={styles.popularBadgeText}>Popular</Text>
               </View>
-            )}
+              {discountPercent > 0 && (
+                <View style={styles.cubeDiscountBadge}>
+                  <Text style={styles.cubeDiscountText}>-{discountPercent}%</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           <View style={styles.cubeContent}>
-            <View style={styles.cubePriceTag}>
-              <Text style={styles.cubePriceText}>R{displayPrice.toFixed(2)}</Text>
-              {hasDiscount && (
-                <Text style={styles.cubeOldPrice}>R{basePrice.toFixed(2)}</Text>
-              )}
-            </View>
-
-            <Text style={styles.cubeTitle} numberOfLines={2}>
+            <Text style={styles.cubeTitle} numberOfLines={1}>
               {item.name}
             </Text>
             <Text style={styles.cubeRestaurant} numberOfLines={1}>
               {item.restaurant_name}
             </Text>
 
-            <View style={styles.cubeActionButton}>
-              <Feather name="shopping-bag" size={14} color="#fff" />
+            <View style={styles.cubeFooter}>
+              <View style={styles.cubePriceTag}>
+                <Text style={styles.cubePriceText}>R{displayPrice.toFixed(2)}</Text>
+                {hasDiscount && (
+                  <Text style={styles.cubeOldPrice}>R{basePrice.toFixed(2)}</Text>
+                )}
+              </View>
+
+              <View style={styles.cubeActionButton}>
+                <Ionicons name="add" size={16} color={customerTheme.ink} />
+              </View>
             </View>
           </View>
-        </Animated.View>
+        </View>
       </TouchableOpacity>
     );
   };
@@ -933,13 +874,13 @@ export default function CustomerHomeScreen() {
                 </View>
               </View>
 
-              <Text style={styles.verticalDesc} numberOfLines={2}>
+              <Text style={styles.verticalDesc} numberOfLines={1}>
                 {item.description || 'Delicious meals ready for delivery'}
               </Text>
 
               <View style={styles.verticalMetaContainer}>
                 <View style={styles.verticalMetaItem}>
-                  <Feather name="clock" size={14} color={THEME.textLight} />
+                  <Feather name="clock" size={13} color={THEME.textLight} />
                   <Text style={styles.verticalMetaText}>
                     {item.preparation_time_minutes || 25} mins
                   </Text>
@@ -949,7 +890,7 @@ export default function CustomerHomeScreen() {
                   <>
                     <View style={styles.verticalDivider} />
                     <View style={styles.verticalMetaItem}>
-                      <Feather name="map-pin" size={14} color={THEME.textLight} />
+                      <Feather name="map-pin" size={13} color={THEME.textLight} />
                       <Text style={styles.verticalMetaText}>{distanceLabel}</Text>
                     </View>
                   </>
@@ -958,7 +899,7 @@ export default function CustomerHomeScreen() {
                 <View style={styles.verticalDivider} />
 
                 <View style={styles.verticalMetaItem}>
-                  <Feather name="truck" size={14} color={THEME.textLight} />
+                  <Feather name="truck" size={13} color={THEME.textLight} />
                   <Text style={styles.verticalMetaText}>Free over R25</Text>
                 </View>
               </View>
@@ -970,13 +911,6 @@ export default function CustomerHomeScreen() {
                   </View>
                 ))}
               </View>
-
-              <View style={styles.verticalActionButton}>
-                <Text style={styles.verticalActionText}>
-                  {activeCategory ? `View ${activeCategory} Menu` : 'View Menu'}
-                </Text>
-                <Feather name="arrow-right" size={16} color={THEME.primaryAccent} />
-              </View>
             </View>
           </View>
         </TouchableOpacity>
@@ -986,11 +920,6 @@ export default function CustomerHomeScreen() {
 
   // Loading Screen
   if (loading && !refreshing) {
-    const spin = loadingAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0deg', '360deg'],
-    });
-
     const dot1Opacity = loadingAnim.interpolate({
       inputRange: [0, 0.33, 0.66, 1],
       outputRange: [0.3, 1, 0.3, 0.3],
@@ -1009,26 +938,16 @@ export default function CustomerHomeScreen() {
         <BlurView intensity={80} style={StyleSheet.absoluteFill} />
 
         <View style={styles.loadingContent}>
-          <Animated.View
-            style={[
-              styles.loadingLogo,
-              {
-                transform: [{ rotate: spin }],
-              },
-            ]}
-          >
-            <LinearGradient
-              colors={[THEME.gradientStart, THEME.gradientEnd]}
-              style={styles.loadingLogoGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Feather name="shopping-bag" size={36} color="#fff" />
-            </LinearGradient>
-          </Animated.View>
+          <View style={styles.loadingLogo}>
+            <Image
+              source={require('../../../assets/images/logo-fit.png')}
+              style={styles.loadingLogoImage}
+              resizeMode="contain"
+            />
+          </View>
 
-          <Text style={styles.loadingBrandText}>Happy Delivery</Text>
-          <Text style={styles.loadingTagline}>Curating culinary excellence</Text>
+          {/* <Text style={styles.loadingBrandText}>Happy Delivery</Text> */}
+          <Text style={styles.loadingTagline}>Curating delivery excellence</Text>
 
           <View style={styles.loadingDots}>
             <Animated.View style={[styles.loadingDot, { opacity: dot1Opacity }]} />
@@ -1040,72 +959,75 @@ export default function CustomerHomeScreen() {
     );
   }
 
+  const locationPrimaryText =
+    effectiveLocation.source === 'gps' &&
+    effectiveLocation.subtitle &&
+    effectiveLocation.subtitle !== 'Using live GPS'
+      ? effectiveLocation.subtitle
+      : effectiveLocation.label;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <RNStatusBar barStyle="dark-content" />
 
-      {/* --- MINIMAL HEADER --- */}
-      <Animated.View style={[styles.header, { height: headerHeight }]}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerTopRow}>
-            <View style={styles.greetingContainer}>
-              <Text style={styles.welcomeText}>
-                Good{' '}
-                {new Date().getHours() < 12
-                  ? 'Morning'
-                  : new Date().getHours() < 18
-                    ? 'Afternoon'
-                    : 'Evening'}
-                , {user?.first_name?.split(' ')[0] || 'Foodie'}!
+      {/* --- CLEAN TOP NAVBAR --- */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.navCircleBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setQuickMenuVisible(true);
+          }}
+          activeOpacity={0.8}
+          accessibilityLabel="Open quick navigation menu"
+        >
+          <Feather name="menu" size={19} color={THEME.secondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.locationTrigger}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setAddressPickerVisible(true);
+          }}
+          activeOpacity={0.75}
+          accessibilityLabel="Change delivery location"
+        >
+          <Ionicons
+            name={effectiveLocation.source === 'selected' ? 'bookmark' : 'location-sharp'}
+            size={18}
+            color={THEME.secondary}
+          />
+          <View style={styles.locationTextBlock}>
+            <Text style={styles.locationCaption}>Your Location</Text>
+            <View style={styles.locationValueRow}>
+              <Text style={styles.locationValue} numberOfLines={1}>
+                {locationPrimaryText}
               </Text>
-              <Text style={styles.userName}>
-                {(() => {
-                  const hour = new Date().getHours();
-                  if (hour < 5) return 'Late night craving?';
-                  if (hour < 11) return "What's for breakfast?";
-                  if (hour < 15) return 'Time for lunch! Hungry?';
-                  if (hour < 18) return 'Afternoon snack time?';
-                  if (hour < 22) return 'Dinner plans?';
-                  return 'Late night craving?';
-                })()}
+              <Feather name="chevron-right" size={14} color={THEME.secondary} />
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navCircleBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push('/(customer)/cart');
+          }}
+          activeOpacity={0.8}
+          accessibilityLabel="Open cart"
+        >
+          <Ionicons name="cart-outline" size={20} color={THEME.secondary} />
+          {cartCount > 0 && (
+            <View style={styles.navCartBadge}>
+              <Text style={styles.navCartBadgeText}>
+                {cartCount > 99 ? '99+' : cartCount}
               </Text>
             </View>
-
-            <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => router.push('/(customer)/profile')}
-            >
-              {user?.profile_image_url ? (
-                <Image source={{ uri: user.profile_image_url }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarInitials}>
-                  <Text style={styles.avatarInitialsText}>{userInitials}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={styles.addressSelectorPill}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setAddressPickerVisible(true);
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={effectiveLocation.source === 'selected' ? 'bookmark' : 'location-sharp'}
-              size={15}
-              color={THEME.primaryAccent}
-            />
-            <Text style={styles.addressSelectorLabel} numberOfLines={1}>
-              {effectiveLocation.label}
-              {effectiveLocation.subtitle ? ` · ${effectiveLocation.subtitle}` : ''}
-            </Text>
-            <Feather name="chevron-down" size={15} color={THEME.secondary} />
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
+          )}
+        </TouchableOpacity>
+      </View>
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
@@ -1113,17 +1035,11 @@ export default function CustomerHomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={[THEME.primary]}
-            tintColor={THEME.primary}
-            progressViewOffset={HEADER_EXPANDED_HEIGHT}
+            colors={[THEME.primaryAccent, THEME.primary]}
+            tintColor={THEME.primaryAccent}
           />
         }
         contentContainerStyle={styles.scrollContent}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
       >
         {/* Promo Banner */}
         <Animated.View
@@ -1143,31 +1059,40 @@ export default function CustomerHomeScreen() {
               router.push('/(customer)/search');
             }}
           >
-            <Image
-              source={{
-                uri: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&q=80&auto=format&fit=crop',
-              }}
-              style={styles.bannerImage}
-            />
             <LinearGradient
-              colors={['rgba(0, 0, 0, 0.1)', 'rgba(0, 0, 0, 0.85)']}
-              style={styles.bannerGradient}
-            />
+              colors={['#FFD83D', '#FFCC00', '#F5B800']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.bannerGradientBg}
+            >
+              <View style={styles.bannerDecorCircleLarge} />
+              <View style={styles.bannerDecorCircleSmall} />
 
-            <View style={styles.bannerContent}>
-              <View style={styles.bannerBadge}>
-                <Text style={styles.bannerBadgeText}>CRAVING SOMETHING GOOD?</Text>
-              </View>
-              <Text style={styles.bannerTitle}>Explore local favorites</Text>
-              <Text style={styles.bannerSubtitle}>
-                Freshly made meals delivered straight to your door
-              </Text>
+              <View style={styles.bannerRow}>
+                <View style={styles.bannerContent}>
+                  <View style={styles.bannerBadge}>
+                    <Text style={styles.bannerBadgeText}>CRAVING SOMETHING GOOD?</Text>
+                  </View>
+                  <Text style={styles.bannerTitle}>Explore local favorites</Text>
+                  <Text style={styles.bannerSubtitle}>
+                    Freshly made meals delivered straight to your door
+                  </Text>
 
-              <View style={styles.bannerButton}>
-                <Text style={styles.bannerButtonText}>Search restaurants</Text>
-                <Feather name="arrow-right" size={16} color="#fff" />
+                  <View style={styles.bannerButton}>
+                    <Text style={styles.bannerButtonText}>Search restaurants</Text>
+                    <Feather name="arrow-right" size={15} color={THEME.primary} />
+                  </View>
+                </View>
+
+                <View style={styles.bannerLogoStage}>
+                  <Image
+                    source={require('../../../assets/images/logo-fit.png')}
+                    style={styles.bannerLogoImage}
+                    resizeMode="contain"
+                  />
+                </View>
               </View>
-            </View>
+            </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
 
@@ -1279,9 +1204,8 @@ export default function CustomerHomeScreen() {
                 <Text style={styles.sectionSubtitle}>
                   {categoryLoading
                     ? 'Finding restaurants...'
-                    : `${categoryRestaurants.length} ${
-                        categoryRestaurants.length === 1 ? 'restaurant' : 'restaurants'
-                      } available`}
+                    : `${categoryRestaurants.length} ${categoryRestaurants.length === 1 ? 'restaurant' : 'restaurants'
+                    } available`}
                 </Text>
               </View>
               <TouchableOpacity
@@ -1349,7 +1273,7 @@ export default function CustomerHomeScreen() {
                   keyExtractor={(item) => `pop-${item.id}`}
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.horizontalList}
-                  snapToInterval={CARD_WIDTH + 16}
+                  snapToInterval={CARD_WIDTH + 14}
                   decelerationRate="fast"
                 />
               </View>
@@ -1421,6 +1345,71 @@ export default function CustomerHomeScreen() {
           setSelectedCategory(null);
         }}
       />
+
+      {/* Quick Navigation Popover */}
+      <Modal
+        visible={quickMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuickMenuVisible(false)}
+      >
+        <View style={styles.quickMenuBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setQuickMenuVisible(false)}
+          />
+          <View style={[styles.quickMenuCard, { top: insets.top + 56 }]}>
+            <TouchableOpacity
+              style={styles.quickMenuItem}
+              onPress={() => {
+                setQuickMenuVisible(false);
+                router.push('/(customer)/search');
+              }}
+            >
+              <Ionicons name="search-outline" size={18} color={THEME.secondary} />
+              <Text style={styles.quickMenuText}>Search Restaurants</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickMenuItem}
+              onPress={() => {
+                setQuickMenuVisible(false);
+                setAddressPickerVisible(true);
+              }}
+            >
+              <Ionicons name="location-outline" size={18} color={THEME.secondary} />
+              <Text style={styles.quickMenuText}>Delivery Address</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickMenuItem}
+              onPress={() => {
+                setQuickMenuVisible(false);
+                router.push('/(customer)/orders');
+              }}
+            >
+              <Ionicons name="receipt-outline" size={18} color={THEME.secondary} />
+              <Text style={styles.quickMenuText}>My Orders</Text>
+              {activeOrders.length > 0 && (
+                <View style={styles.quickMenuBadge}>
+                  <Text style={styles.quickMenuBadgeText}>{activeOrders.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.quickMenuItem, styles.quickMenuItemLast]}
+              onPress={() => {
+                setQuickMenuVisible(false);
+                router.push('/(customer)/profile');
+              }}
+            >
+              <Ionicons name="person-outline" size={18} color={THEME.secondary} />
+              <Text style={styles.quickMenuText}>My Profile</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1440,22 +1429,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingLogo: {
-    width: 100,
-    height: 100,
-    borderRadius: 25,
-    marginBottom: 24,
-    shadowColor: THEME.primary,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
+    width: 180,
+    height: 180,
+    marginBottom: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  loadingLogoGradient: {
+  loadingLogoImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   loadingBrandText: {
     fontSize: 32,
@@ -1481,161 +1463,232 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.primary,
   },
   scrollContent: {
-    paddingTop: HEADER_EXPANDED_HEIGHT + 8,
+    paddingTop: 4,
     paddingBottom: 100,
   },
   header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 6,
+    paddingBottom: 12,
     backgroundColor: THEME.background,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+  },
+  navCircleBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#EBECEF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  navCartBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: THEME.secondary,
+    borderWidth: 1.5,
+    borderColor: THEME.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navCartBadgeText: {
+    color: THEME.primary,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  locationTrigger: {
+    flex: 1,
+    marginHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  locationTextBlock: {
+    alignItems: 'flex-start',
+    flexShrink: 1,
+  },
+  locationCaption: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: THEME.textLight,
+    lineHeight: 14,
+  },
+  locationValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  locationValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.secondary,
+    maxWidth: 180,
+  },
+  quickMenuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(24, 24, 27, 0.18)',
+  },
+  quickMenuCard: {
+    position: 'absolute',
+    left: 24,
+    width: 224,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 4,
   },
-  headerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  greetingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  welcomeText: {
-    fontSize: 13,
-    color: THEME.textLight,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  userName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: THEME.secondary,
-    letterSpacing: -0.5,
-  },
-  profileButton: {
-    marginLeft: 16,
-  },
-  addressSelectorPill: {
+  quickMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#F1E6D6',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 6,
-    maxWidth: '100%',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  addressSelectorLabel: {
-    fontSize: 12.5,
+  quickMenuItemLast: {
+    borderBottomWidth: 0,
+  },
+  quickMenuText: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
     color: THEME.secondary,
-    flexShrink: 1,
   },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: THEME.border,
-  },
-  avatarInitials: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: THEME.secondary,
-    justifyContent: 'center',
+  quickMenuBadge: {
+    backgroundColor: THEME.primary,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  avatarInitialsText: {
-    color: THEME.primary,
-    fontSize: 16,
+  quickMenuBadgeText: {
+    fontSize: 11,
     fontWeight: '800',
+    color: THEME.secondary,
   },
   bannerSection: {
     paddingHorizontal: 24,
-    marginBottom: 24,
+    marginBottom: 22,
   },
   bannerContainer: {
-    height: 190,
-    borderRadius: 24,
+    borderRadius: 16,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: customerTheme.accentBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  bannerGradientBg: {
+    minHeight: 196,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    justifyContent: 'center',
     position: 'relative',
   },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  bannerGradient: {
+  bannerDecorCircleLarge: {
     position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+    top: -36,
+    right: -28,
+    width: 156,
+    height: 156,
+    borderRadius: 78,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  bannerDecorCircleSmall: {
+    position: 'absolute',
+    bottom: -44,
+    right: 64,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  bannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
   bannerContent: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    right: 20,
+    flex: 1,
+    alignItems: 'flex-start',
   },
   bannerBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(24, 24, 27, 0.09)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
     marginBottom: 10,
   },
   bannerBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
+    color: THEME.secondary,
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   bannerTitle: {
-    color: '#fff',
-    fontSize: 26,
-    fontWeight: '800',
+    color: THEME.secondary,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+    letterSpacing: -0.4,
     marginBottom: 6,
   },
   bannerSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 13,
+    color: 'rgba(24, 24, 27, 0.78)',
+    fontSize: 12.5,
+    lineHeight: 18,
     fontWeight: '500',
     marginBottom: 16,
   },
   bannerButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
-    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: THEME.secondary,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+    borderRadius: 999,
   },
   bannerButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-    marginRight: 8,
+    color: THEME.primary,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  bannerLogoStage: {
+    width: BANNER_LOGO_SIZE,
+    height: BANNER_LOGO_SIZE,
+    borderRadius: BANNER_LOGO_SIZE / 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.46)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  bannerLogoImage: {
+    width: '100%',
+    height: '100%',
   },
   section: {
     marginBottom: 28,
@@ -1672,13 +1725,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: THEME.primaryLight,
+    backgroundColor: THEME.surfaceMuted,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
   clearFilterText: {
-    color: THEME.primaryAccent,
+    color: THEME.secondary,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1688,13 +1743,15 @@ const styles = StyleSheet.create({
   },
   activeOrderCard: {
     backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 18,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: THEME.border,
     shadowColor: THEME.shadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   activeOrderRow: {
     flexDirection: 'row',
@@ -1713,13 +1770,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   activeOrderBadge: {
-    backgroundColor: THEME.primaryAccent,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
+    backgroundColor: THEME.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
   activeOrderBadgeText: {
-    color: '#fff',
+    color: customerTheme.ink,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'capitalize',
@@ -1741,29 +1798,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#EFEFEF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.border,
     shadowColor: THEME.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   categoryPillSelected: {
     backgroundColor: THEME.primary,
     borderColor: THEME.primary,
   },
   categoryPillIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: THEME.primaryLight,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: THEME.surfaceMuted,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 8,
   },
   categoryPillIconWrapSelected: {
     backgroundColor: 'rgba(255, 255, 255, 0.75)',
@@ -1772,7 +1829,7 @@ const styles = StyleSheet.create({
     maxWidth: 130,
   },
   categoryPillTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
     color: THEME.secondary,
   },
@@ -1807,30 +1864,22 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     width: CARD_WIDTH,
-    marginRight: 16,
+    marginRight: 14,
   },
   restaurantCard: {
     backgroundColor: THEME.card,
-    borderRadius: 24,
-    height: RESTAURANT_CARD_HEIGHT,
+    borderRadius: 14,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.border,
     shadowColor: THEME.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  cardGlow: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: THEME.primary,
-    borderRadius: 24,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardImageContainer: {
-    height: 180,
+    height: 144,
     position: 'relative',
   },
   cardImage: {
@@ -1852,38 +1901,38 @@ const styles = StyleSheet.create({
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   ratingText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
     marginLeft: 4,
   },
   likeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.92)',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   closedBadge: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
+    bottom: 10,
+    left: 10,
     backgroundColor: 'rgba(255, 71, 87, 0.92)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   closedBadgeText: {
     color: '#fff',
@@ -1892,107 +1941,99 @@ const styles = StyleSheet.create({
   },
   timeBadge: {
     position: 'absolute',
-    bottom: 12,
-    right: 12,
+    bottom: 10,
+    right: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   timeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
     marginLeft: 4,
   },
   cardContent: {
-    padding: 16,
+    padding: 14,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: THEME.secondary,
     flex: 1,
     marginRight: 8,
   },
   verifiedBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: THEME.primaryLight,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ECFDF5',
     justifyContent: 'center',
     alignItems: 'center',
   },
   cardDescription: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: THEME.textLight,
-    lineHeight: 18,
-    marginBottom: 12,
+    lineHeight: 17,
+    marginBottom: 10,
   },
   cuisineContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   cuisineTag: {
-    backgroundColor: THEME.primaryLight,
-    paddingHorizontal: 10,
+    backgroundColor: THEME.surfaceMuted,
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   cuisineText: {
-    fontSize: 12,
-    color: THEME.primaryAccent,
+    fontSize: 11.5,
+    color: '#4B5563',
     fontWeight: '600',
   },
   cubeContainer: {
-    width: CUBE_SIZE,
+    width: DISH_CARD_WIDTH,
     marginRight: 12,
   },
   cubeCard: {
-    width: CUBE_SIZE,
-    height: CUBE_SIZE * 1.32,
-    borderRadius: 20,
+    width: DISH_CARD_WIDTH,
+    backgroundColor: THEME.card,
+    borderRadius: 14,
     overflow: 'hidden',
-    position: 'relative',
+    borderWidth: 1,
+    borderColor: THEME.border,
     shadowColor: THEME.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cubeImageWrapper: {
+    width: '100%',
+    height: 112,
+    position: 'relative',
+    backgroundColor: THEME.surfaceMuted,
   },
   cubeImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
-  cubeOverlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
-  cubeGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '65%',
-  },
   cubeTopBadges: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
+    top: 8,
+    left: 8,
+    right: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -2002,20 +2043,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 3,
     backgroundColor: THEME.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   popularBadgeText: {
-    color: '#1A1A1A',
+    color: THEME.secondary,
     fontSize: 10,
     fontWeight: '800',
   },
   cubeDiscountBadge: {
     backgroundColor: '#FF4757',
     paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   cubeDiscountText: {
     color: '#fff',
@@ -2023,68 +2064,72 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   cubeContent: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-  },
-  cubePriceTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  cubePriceText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#fff',
-    marginRight: 6,
-  },
-  cubeOldPrice: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.75)',
-    textDecorationLine: 'line-through',
-    fontWeight: '500',
+    padding: 11,
   },
   cubeTitle: {
-    color: '#fff',
+    color: THEME.secondary,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 2,
   },
   cubeRestaurant: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 11,
+    color: THEME.textLight,
+    fontSize: 11.5,
     fontWeight: '500',
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  cubeFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  cubePriceTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  cubePriceText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: THEME.secondary,
+    marginRight: 5,
+  },
+  cubeOldPrice: {
+    fontSize: 11,
+    color: THEME.textLight,
+    textDecorationLine: 'line-through',
+    fontWeight: '500',
   },
   cubeActionButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: THEME.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-end',
   },
   verticalList: {
     paddingHorizontal: 24,
-    gap: 20,
+    gap: 14,
   },
   verticalCardContainer: {
-    marginBottom: 4,
+    marginBottom: 2,
   },
   verticalCard: {
     backgroundColor: THEME.card,
-    borderRadius: 24,
+    borderRadius: 14,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.border,
     shadowColor: THEME.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   verticalImageWrapper: {
-    height: 196,
+    height: 156,
     position: 'relative',
   },
   verticalImage: {
@@ -2097,134 +2142,118 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '50%',
+    height: '45%',
   },
   verticalRatingBadge: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
+    bottom: 10,
+    left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   verticalRatingText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
     marginLeft: 4,
   },
   verticalClosedPill: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 10,
+    left: 10,
     backgroundColor: 'rgba(255, 71, 87, 0.92)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   verticalClosedPillText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   verticalLikeBtn: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    top: 10,
+    right: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
   },
   verticalContent: {
-    padding: 20,
+    padding: 14,
   },
   verticalHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   verticalTitle: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
     color: THEME.secondary,
     flex: 1,
-    marginRight: 12,
+    marginRight: 10,
   },
   verticalVerified: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: THEME.primaryLight,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ECFDF5',
     justifyContent: 'center',
     alignItems: 'center',
   },
   verticalDesc: {
-    fontSize: 14,
+    fontSize: 13,
     color: THEME.textLight,
-    lineHeight: 20,
-    marginBottom: 14,
+    lineHeight: 18,
+    marginBottom: 10,
   },
   verticalMetaContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   verticalMetaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   verticalMetaText: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: THEME.textLight,
     fontWeight: '500',
   },
   verticalDivider: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: THEME.border,
-    marginHorizontal: 10,
+    marginHorizontal: 8,
   },
   verticalCuisineRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 18,
+    gap: 6,
   },
   verticalCuisineTag: {
-    backgroundColor: THEME.primaryLight,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
+    backgroundColor: THEME.surfaceMuted,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
   verticalCuisineText: {
-    fontSize: 12,
-    color: THEME.primaryAccent,
+    fontSize: 11.5,
+    color: '#4B5563',
     fontWeight: '600',
-  },
-  verticalActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: THEME.primaryLight,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-  },
-  verticalActionText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: THEME.primaryAccent,
-    marginRight: 8,
   },
   emptyState: {
     alignItems: 'center',
