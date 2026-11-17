@@ -36,6 +36,10 @@ export const driverService = {
     return api.post(`/orders/${orderId}/verify-code`, { code });
   },
 
+  async reportCustomerUnreachable(orderId: string, notes?: string) {
+    return api.post(`/orders/${orderId}/report-customer-unreachable`, { notes });
+  },
+
   async getEarningsSummary() {
     return api.get('/drivers/earnings/summary');
   },

@@ -26,6 +26,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, actionLabel, onActionPress
         return 'checkmark-circle';
       case 'cancelled':
       case 'no_drivers_available':
+      case 'delivery_failed':
         return 'close-circle';
       case 'pending':
         return 'time';
@@ -46,6 +47,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, actionLabel, onActionPress
         return colors.success;
       case 'cancelled':
       case 'no_drivers_available':
+      case 'delivery_failed':
         return colors.error;
       case 'pending':
         return colors.warning;
@@ -64,6 +66,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, actionLabel, onActionPress
       return paymentStatus === 'completed' ? 'Paid • Finding Driver' : 'Accepted • Ready to Pay';
     }
     if (status === 'cancelled') return 'Rejected / Cancelled';
+    if (status === 'delivery_failed') return 'Failed (Payment Forfeited)';
     return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 

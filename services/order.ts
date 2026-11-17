@@ -1,6 +1,10 @@
 import api from './api';
 
 export const orderService = {
+  async getSupportContact() {
+    return api.get('/orders/support-contact');
+  },
+
   async getDeliveryQuote(data: {
     restaurant_id: string;
     delivery_address?: any;

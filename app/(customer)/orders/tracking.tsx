@@ -125,6 +125,17 @@ export default function TrackingScreen() {
   const [loading, setLoading] = useState(true);
   const [showQR, setShowQR] = useState(false);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const [supportPhoneFallback, setSupportPhoneFallback] = useState<string | null>(null);
+
+  useEffect(() => {
+    orderService
+      .getSupportContact()
+      .then((res: any) => {
+        const phone = res?.data?.support_phone || res?.support_phone || null;
+        if (phone) setSupportPhoneFallback(phone);
+      })
+      .catch(() => {});
+  }, []);
 
   // Get customer's real GPS location if permission is available
   useEffect(() => {
@@ -288,7 +299,7 @@ export default function TrackingScreen() {
   }, [id, socket, fetchOrderData]);
 
   const isTerminalTracking = Boolean(
-    order?.status && ['delivered', 'cancelled', 'no_drivers_available'].includes(order.status)
+    order?.status && ['delivered', 'cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status)
   );
 
   // Conditional fallback poll ONLY when focused, active, and Socket.IO is disconnected
@@ -389,6 +400,10 @@ export default function TrackingScreen() {
         return 'Driver has arrived at your location!';
       case 'delivered':
         return 'Order Delivered';
+      case 'delivery_failed':
+        return 'Delivery Failed (Customer Unreachable)';
+      case 'cancelled':
+        return 'Order Cancelled';
       default:
         return 'Tracking Order';
     }
@@ -397,11 +412,17 @@ export default function TrackingScreen() {
   const getStatusSubtitle = (status: string) => {
     switch (status) {
       case 'picked_up':
-        return 'Your driver has collected your order from the restaurant and is heading to your delivery address.';
+        return order?.rescue_courier?.name
+          ? `Rescue courier ${order.rescue_courier.name} is bringing your order to you.`
+          : 'Your driver has collected your order from the restaurant and is heading to your delivery address.';
       case 'on_the_way':
-        return 'Watch your driver move in real time on the map above.';
+        return order?.rescue_courier?.name
+          ? `Happy Dispatch rescue courier (${order.rescue_courier.name}) is on the way.`
+          : 'Watch your driver move in real time on the map above.';
       case 'arrived':
-        return 'Meet your driver and show the delivery verification code below.';
+        return 'Meet your courier and show the delivery verification code below.';
+      case 'delivery_failed':
+        return order?.failure_reason || 'Courier and Dispatch could not reach you at drop-off. Payment forfeited per policy.';
       case 'accepted_by_driver':
         return `Your driver is on the way to ${order?.restaurant_name || 'the restaurant'}.`;
       default:
@@ -603,7 +624,39 @@ export default function TrackingScreen() {
           })}
         </View>
 
-        {order.driver_id || isPickedUpOrEnRoute ? (
+        {order.rescue_courier?.name ? (
+          <View style={styles.driverSection}>
+            <View style={styles.driverRow}>
+              <View style={[styles.avatar, { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons name="shield-checkmark" size={24} color="#059669" />
+              </View>
+              <View style={styles.driverInfoBlock}>
+                <Text style={[styles.driverName, { color: '#065F46' }]}>
+                  {order.rescue_courier.name}
+                </Text>
+                <View style={styles.vehicleRow}>
+                  <Text style={styles.vehicleText}>
+                    {order.rescue_courier.courier_type_label || 'Happy Dispatch Rescue'}
+                    {order.rescue_courier.vehicle ? ` · ${order.rescue_courier.vehicle}` : ''}
+                  </Text>
+                  {order.rescue_courier.plate && (
+                    <View style={styles.plateBadge}>
+                      <Text style={styles.plateText}>{order.rescue_courier.plate}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              {order.rescue_courier.phone && (
+                <TouchableOpacity
+                  style={styles.callBtn}
+                  onPress={() => Linking.openURL(`tel:${order.rescue_courier.phone}`)}
+                >
+                  <Ionicons name="call" size={20} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        ) : order.driver_id ? (
           <View style={styles.driverSection}>
             <View style={styles.driverRow}>
               <View style={styles.avatar}>
@@ -642,8 +695,35 @@ export default function TrackingScreen() {
         ) : (
           <View style={styles.waitingState}>
             <ActivityIndicator color={colors.primary} size="small" />
-            <Text style={styles.waitingText}>Assigning an optimal driver...</Text>
+            <Text style={styles.waitingText}>
+              {order.reassigned_at
+                ? 'Dispatch is assigning a new driver to your order...'
+                : 'Assigning an optimal driver...'}
+            </Text>
           </View>
+        )}
+
+        {(order.support_phone || supportPhoneFallback) && (
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: '#FFFBEB',
+              borderWidth: 1,
+              borderColor: '#FCD34D',
+              marginBottom: 12,
+            }}
+            onPress={() => Linking.openURL(`tel:${order.support_phone || supportPhoneFallback}`)}
+          >
+            <Ionicons name="headset" size={16} color="#B45309" />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>
+              Late or need help? Call Happy Dispatch ({order.support_phone || supportPhoneFallback})
+            </Text>
+          </TouchableOpacity>
         )}
 
         {['picked_up', 'on_the_way', 'arrived'].includes(order.status) && !!order.verification_code && (
@@ -669,7 +749,7 @@ export default function TrackingScreen() {
           </View>
         )}
 
-        {(order.status === 'delivered' || order.status === 'cancelled') && (
+        {['delivered', 'cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status) && (
           <TouchableOpacity
             style={styles.terminalCtaBtn}
             activeOpacity={0.85}

@@ -94,6 +94,7 @@ export default function OrdersScreen() {
         return colors.success;
       case 'cancelled':
       case 'no_drivers_available':
+      case 'delivery_failed':
         return colors.error;
       case 'pending':
       case 'accepted_by_driver':
@@ -126,7 +127,9 @@ export default function OrdersScreen() {
     ? orders 
     : selectedFilter === 'active'
       ? orders.filter(order => allActiveStatuses.includes(order.status))
-      : orders.filter(order => order.status === selectedFilter);
+      : selectedFilter === 'cancelled'
+        ? orders.filter(order => ['cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status))
+        : orders.filter(order => order.status === selectedFilter);
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>

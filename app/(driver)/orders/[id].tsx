@@ -22,6 +22,7 @@ import * as Location from 'expo-location';
 
 import { colors } from '../../../constants/colors';
 import { driverService } from '../../../services/driver';
+import { orderService } from '../../../services/order';
 import { useSocket } from '../../../hooks/useSocket';
 import { useDriverAlertStore } from '../../../store/driverAlertStore';
 
@@ -61,6 +62,9 @@ type Order = {
   delivery_address: string | { street: string; city: string; zip: string };
   items: OrderItem[];
   driver_id: string;
+  support_phone?: string | null;
+  support_name?: string | null;
+  failure_reason?: string | null;
 };
 
 export default function DriverOrderDetailsScreen() {
@@ -72,6 +76,18 @@ export default function DriverOrderDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [isLiveTracking, setIsLiveTracking] = useState(false);
+  const [alertingDispatch, setAlertingDispatch] = useState(false);
+  const [supportPhoneFallback, setSupportPhoneFallback] = useState<string | null>(null);
+
+  useEffect(() => {
+    orderService
+      .getSupportContact()
+      .then((res: any) => {
+        const phone = res?.data?.support_phone || res?.support_phone || null;
+        if (phone) setSupportPhoneFallback(phone);
+      })
+      .catch(() => {});
+  }, []);
 
   // Scan modal state
   const [showScanModal, setShowScanModal] = useState(false);
@@ -100,15 +116,28 @@ export default function DriverOrderDetailsScreen() {
     const handleOrderUpdate = (payload: any) => {
       const nextStatus = payload?.status || payload?.new_status || payload?.order?.status;
       if (nextStatus) {
-        if (['accepted_by_driver', 'cancelled', 'no_drivers_available', 'delivered'].includes(nextStatus)) {
+        if (['accepted_by_driver', 'cancelled', 'no_drivers_available', 'delivered', 'delivery_failed'].includes(nextStatus)) {
           useDriverAlertStore.getState().removeOrderAlert(id);
         }
         fetchOrderDetails();
       }
     };
+    const handleOrderUnavailable = (payload: any) => {
+      const targetId = String(payload?.orderId || payload?.order_id || '');
+      if (targetId === String(id)) {
+        useDriverAlertStore.getState().removeOrderAlert(id);
+        Alert.alert(
+          'Order Assignment Updated',
+          'Dispatch updated or reassigned this delivery. Returning to your orders list.'
+        );
+        fetchOrderDetails();
+      }
+    };
     socket.on('order_update', handleOrderUpdate);
+    socket.on('order_unavailable', handleOrderUnavailable);
     return () => {
       socket.off('order_update', handleOrderUpdate);
+      socket.off('order_unavailable', handleOrderUnavailable);
     };
   }, [socket, id]);
 
@@ -411,6 +440,52 @@ export default function DriverOrderDetailsScreen() {
     Linking.openURL(`tel:${phone}`);
   };
 
+  const handleReportCustomerUnreachable = async () => {
+    if (!order || alertingDispatch) return;
+    Alert.alert(
+      'Customer Not Answering?',
+      'This will alert Happy Dispatch immediately with the customer’s phone number so Happy can call the customer before closing this order.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Alert & Call Happy',
+          onPress: async () => {
+            setAlertingDispatch(true);
+            try {
+              const res: any = await driverService.reportCustomerUnreachable(
+                order.id,
+                `Driver at drop-off (${order.status}) cannot reach customer`
+              );
+              const hotPhone =
+                res?.data?.support_contact?.support_phone ||
+                order.support_phone ||
+                supportPhoneFallback;
+              if (hotPhone) {
+                Alert.alert(
+                  'Happy Dispatch Alerted',
+                  'Happy now sees your unreachable alert and the customer phone number. Call Happy Dispatch now to coordinate next steps.',
+                  [
+                    { text: 'Later', style: 'cancel' },
+                    { text: 'Call Happy Now', onPress: () => Linking.openURL(`tel:${hotPhone}`) },
+                  ]
+                );
+              } else {
+                Alert.alert(
+                  'Happy Dispatch Alerted',
+                  'Happy Dispatch has been notified that the customer is unreachable.'
+                );
+              }
+            } catch (err: any) {
+              Alert.alert('Alert Error', err?.response?.data?.error || err?.message || 'Could not reach Dispatch');
+            } finally {
+              setAlertingDispatch(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const getNextAction = () => {
     if (!order) return null;
     if (!order.driver_id && ['ordering_at_restaurant', 'order_ready'].includes(order.status) && order.payment_status === 'completed') {
@@ -537,6 +612,78 @@ export default function DriverOrderDetailsScreen() {
           </TouchableOpacity>
         </View>
 
+        {order.status === 'delivery_failed' && (
+          <View style={[styles.card, { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FCA5A5' }]}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: '#991B1B', marginBottom: 4 }}>
+              Delivery Closed · Customer Unreachable
+            </Text>
+            <Text style={{ fontSize: 13, color: '#B91C1C', lineHeight: 19 }}>
+              {order.failure_reason ||
+                'Happy Dispatch closed this delivery because the customer could not be reached. Your delivery fee has been credited to your earnings.'}
+            </Text>
+          </View>
+        )}
+
+        {['accepted_by_driver', 'order_ready', 'picked_up', 'on_the_way', 'arrived'].includes(order.status) && (
+          <View style={[styles.card, { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FCD34D' }]}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#92400E', textTransform: 'uppercase', marginBottom: 6 }}>
+              Dispatch Support &amp; Emergencies
+            </Text>
+            <Text style={{ fontSize: 12.5, color: '#78350F', marginBottom: 10, lineHeight: 18 }}>
+              Cannot cancel an accepted delivery on your own. Call Happy Dispatch immediately for emergencies or if the customer refuses to answer.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {!!(order.support_phone || supportPhoneFallback) && (
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    minWidth: 135,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                    backgroundColor: '#FFFFFF',
+                    borderWidth: 1,
+                    borderColor: '#F59E0B',
+                  }}
+                  onPress={() => callNumber((order.support_phone || supportPhoneFallback) as string)}
+                >
+                  <Ionicons name="headset" size={17} color="#B45309" />
+                  <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 13 }}>
+                    Call Happy Dispatch
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {['picked_up', 'on_the_way', 'arrived'].includes(order.status) && (
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    minWidth: 165,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                    backgroundColor: '#DC2626',
+                  }}
+                  onPress={handleReportCustomerUnreachable}
+                  disabled={alertingDispatch}
+                >
+                  <Ionicons name="alert-circle" size={17} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                    {alertingDispatch ? 'Alerting Happy...' : 'Customer Not Answering'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* 3. Order Items */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Items</Text>
@@ -592,7 +739,7 @@ export default function DriverOrderDetailsScreen() {
                     <Text style={styles.itemNote}>Note: {item.special_instructions}</Text>
                   ) : null}
                 </View>
-                {order.status === 'delivered' && (
+                {(order.status === 'delivered' || order.status === 'delivery_failed') && (
                   <Text style={styles.itemPrice}>
                     R{Number(item.total_price ?? Number(item.unit_price || 0) * item.quantity).toFixed(2)}
                   </Text>
@@ -602,7 +749,7 @@ export default function DriverOrderDetailsScreen() {
           })}
           
           <View style={styles.divider} />
-          {order.status === 'delivered' ? (
+          {(order.status === 'delivered' || order.status === 'delivery_failed') ? (
             <View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Subtotal</Text>

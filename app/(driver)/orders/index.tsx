@@ -149,7 +149,7 @@ export default function DriverOrdersScreen() {
   const getStatusColor = (status: string) => {
     if (status === 'pending') return colors.warning;
     if (status === 'delivered') return colors.success;
-    if (status === 'cancelled') return colors.error;
+    if (['cancelled', 'no_drivers_available', 'delivery_failed'].includes(status)) return colors.error;
     return colors.primary;
   };
 

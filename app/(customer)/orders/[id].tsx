@@ -46,6 +46,19 @@ type Order = {
   driver_last_name?: string;
   driver_phone?: string;
   driver_vehicle?: string;
+  rescue_courier?: {
+    mode?: string;
+    name?: string;
+    phone?: string;
+    vehicle?: string;
+    plate?: string;
+    courier_type_label?: string;
+  } | null;
+  reassigned_at?: string;
+  failure_reason?: string;
+  forfeited?: boolean;
+  support_phone?: string | null;
+  support_name?: string | null;
   items: Array<{
     id: string;
     menu_item_id?: string;
@@ -96,6 +109,17 @@ export default function OrderDetailsScreen() {
   const [submittingRating, setSubmittingRating] = useState(false);
 
   const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const [supportPhoneFallback, setSupportPhoneFallback] = useState<string | null>(null);
+
+  useEffect(() => {
+    orderService
+      .getSupportContact()
+      .then((res: any) => {
+        const phone = res?.data?.support_phone || res?.support_phone || null;
+        if (phone) setSupportPhoneFallback(phone);
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchOrderDetails = useCallback(async () => {
     if (!id) return;
@@ -156,7 +180,7 @@ export default function OrderDetailsScreen() {
 
   // Fallback poll ONLY while focused, non-terminal, and either socket is disconnected or hosted Paystack checkout is open
   const isTerminalStatus = Boolean(
-    order?.status && ['delivered', 'cancelled', 'no_drivers_available'].includes(order.status)
+    order?.status && ['delivered', 'cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status)
   );
   const shouldFallbackPoll =
     isScreenFocused && !isTerminalStatus && (!isSocketConnected || paystackModalVisible);
@@ -340,7 +364,7 @@ export default function OrderDetailsScreen() {
     ];
 
     let currentIndex = 0;
-    if (order?.status === 'cancelled' || order?.status === 'no_drivers_available') {
+    if (order?.status === 'cancelled' || order?.status === 'no_drivers_available' || order?.status === 'delivery_failed') {
       currentIndex = -1;
     } else if (order?.status === 'pending') {
       currentIndex = 0;
@@ -476,6 +500,19 @@ export default function OrderDetailsScreen() {
           </View>
         )}
 
+        {order.status === 'delivery_failed' && (
+          <View style={[styles.statusBanner, { backgroundColor: '#FEF2F2', borderColor: '#EF4444' }]}>
+            <Ionicons name="ban-outline" size={24} color="#DC2626" />
+            <View style={styles.statusBannerTextContainer}>
+              <Text style={[styles.statusBannerTitle, { color: '#991B1B' }]}>Delivery Failed • Payment Forfeited</Text>
+              <Text style={[styles.statusBannerSubtitle, { color: '#B91C1C' }]}>
+                {order.failure_reason ||
+                  'Our driver and dispatch team could not reach you at the delivery address. Per delivery policy, no refund was issued.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {order.status === 'ordering_at_restaurant' && order.payment_status !== 'completed' && (
           <View style={styles.paymentCard}>
             <View style={styles.paymentHeaderRow}>
@@ -595,6 +632,60 @@ export default function OrderDetailsScreen() {
               onPress={() => router.push(`/(customer)/orders/tracking?id=${order.id}`)}
               variant="primary"
             />
+            {(order.rescue_courier?.phone || order.driver_phone || order.support_phone || supportPhoneFallback) && (
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {(order.rescue_courier?.phone || order.driver_phone) && (
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      minWidth: 130,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      backgroundColor: '#FFFFFF',
+                      borderWidth: 1,
+                      borderColor: '#93C5FD',
+                    }}
+                    onPress={() =>
+                      Linking.openURL(`tel:${order.rescue_courier?.phone || order.driver_phone}`)
+                    }
+                  >
+                    <Ionicons name="call" size={16} color="#1D4ED8" />
+                    <Text style={{ color: '#1E40AF', fontWeight: '700', fontSize: 13 }}>
+                      Call {order.rescue_courier?.name ? 'Courier' : 'Driver'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {(order.support_phone || supportPhoneFallback) && (
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      minWidth: 130,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      backgroundColor: '#FFFBEB',
+                      borderWidth: 1,
+                      borderColor: '#FCD34D',
+                    }}
+                    onPress={() =>
+                      Linking.openURL(`tel:${order.support_phone || supportPhoneFallback}`)
+                    }
+                  >
+                    <Ionicons name="headset" size={16} color="#B45309" />
+                    <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 13 }}>
+                      Call Happy Support
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </TouchableOpacity>
         )}
 
@@ -683,24 +774,64 @@ export default function OrderDetailsScreen() {
             </View>
           </View>
 
-          {order.driver_first_name && (
+          {order.rescue_courier?.name ? (
+            <View style={styles.detailRow}>
+              <Ionicons name="shield-checkmark" size={20} color="#059669" />
+              <View style={styles.detailContent}>
+                <Text style={[styles.detailLabel, { color: '#065F46' }]}>
+                  {order.rescue_courier.courier_type_label || 'Happy Dispatch Rescue Courier'}
+                </Text>
+                <Text style={styles.detailValue}>{order.rescue_courier.name}</Text>
+                {!!order.rescue_courier.phone && (
+                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.rescue_courier!.phone}`)}>
+                    <Text style={[styles.detailSubtext, { color: '#059669', fontWeight: '700' }]}>
+                      📞 Call Courier ({order.rescue_courier.phone})
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {!!(order.rescue_courier.vehicle || order.rescue_courier.plate) && (
+                  <Text style={styles.detailSubtext}>
+                    {[order.rescue_courier.vehicle, order.rescue_courier.plate].filter(Boolean).join(' • ')}
+                  </Text>
+                )}
+              </View>
+            </View>
+          ) : order.driver_first_name ? (
             <View style={styles.detailRow}>
               <Ionicons name="person" size={20} color={colors.primary} />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Driver</Text>
+                <Text style={styles.detailLabel}>
+                  {order.reassigned_at ? 'Driver (Reassigned)' : 'Driver'}
+                </Text>
                 <Text style={styles.detailValue}>
                   {order.driver_first_name} {order.driver_last_name}
                 </Text>
                 {order.driver_phone && (
                   <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.driver_phone}`)}>
                     <Text style={[styles.detailSubtext, { color: colors.primary, fontWeight: '600' }]}>
-                      {order.driver_phone}
+                      📞 Call Driver ({order.driver_phone})
                     </Text>
                   </TouchableOpacity>
                 )}
                 {order.driver_vehicle && (
                   <Text style={styles.detailSubtext}>{order.driver_vehicle}</Text>
                 )}
+              </View>
+            </View>
+          ) : null}
+
+          {(order.support_phone || supportPhoneFallback) && (
+            <View style={styles.detailRow}>
+              <Ionicons name="headset" size={20} color="#B45309" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Order Support / Late Delivery Help</Text>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`tel:${order.support_phone || supportPhoneFallback}`)}
+                >
+                  <Text style={[styles.detailSubtext, { color: '#B45309', fontWeight: '700', fontSize: 14 }]}>
+                    📞 Call Happy Dispatch ({order.support_phone || supportPhoneFallback})
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -786,7 +917,7 @@ export default function OrderDetailsScreen() {
           </View>
         )}
 
-        {['delivered', 'cancelled', 'no_drivers_available'].includes(order.status) && (
+        {['delivered', 'cancelled', 'no_drivers_available', 'delivery_failed'].includes(order.status) && (
           <View style={styles.actionButtons}>
             <Button
               title="Reorder"
