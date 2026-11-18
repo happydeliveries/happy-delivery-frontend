@@ -8,7 +8,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { API_CONFIG } from '../../constants/api';
-import { customerColors as colors } from '../../constants/customerTheme';
+
+const SWAP_DRIVER_AND_RESTAURANT_IMAGES = false;
 
 export interface CustomerOrderSummary {
   id: string;
@@ -24,6 +25,11 @@ export interface CustomerOrderSummary {
   restaurant_address?: string | null;
   driver_first_name?: string | null;
   driver_last_name?: string | null;
+  driver_image?: string | null;
+  driver_vehicle_type?: string | null;
+  rescue_courier?: {
+    name?: string | null;
+  } | null;
   items_count?: number;
   items_summary?: string | null;
   first_item_image?: string | null;
@@ -32,6 +38,7 @@ export interface CustomerOrderSummary {
 interface OrderCardProps {
   order: CustomerOrderSummary;
   actionLabel?: string;
+  swapImages?: boolean;
   onPress?: () => void;
   onActionPress?: () => void;
 }
@@ -59,12 +66,13 @@ const ACTIVE_STATUS_SET = new Set([
   'arrived',
 ]);
 
-const TRACKING_STATUS_SET = new Set([
-  'accepted_by_driver',
-  'picked_up',
-  'on_the_way',
-  'arrived',
+const CANCELLED_OR_FAILED_SET = new Set([
+  'cancelled',
+  'no_drivers_available',
+  'delivery_failed',
 ]);
+
+const STEP_LABELS = ['Placed', 'Preparing', 'On Way', 'Delivered'] as const;
 
 const getRestaurantInitials = (name?: string) => {
   const words = String(name || '')
@@ -77,9 +85,9 @@ const getRestaurantInitials = (name?: string) => {
 };
 
 const formatOrderTimestamp = (raw?: string) => {
-  if (!raw) return '';
+  if (!raw) return 'Recent';
   const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return 'Recent';
 
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -104,508 +112,549 @@ const formatOrderTimestamp = (raw?: string) => {
   return `${datePart} • ${timePart}`;
 };
 
-const getStatusAppearance = (status: string, paymentStatus?: string) => {
+const getStatusBadgeConfig = (status: string) => {
   switch (status) {
     case 'delivered':
       return {
         label: 'Delivered',
         icon: 'checkmark-circle' as const,
-        bg: '#ECFDF5',
-        text: '#047857',
-        border: '#A7F3D0',
+        bg: '#DCFCE7',
+        text: '#15803D',
       };
     case 'cancelled':
       return {
         label: 'Cancelled',
         icon: 'close-circle' as const,
-        bg: '#FEF2F2',
+        bg: '#FEE2E2',
         text: '#DC2626',
-        border: '#FECACA',
       };
     case 'no_drivers_available':
       return {
         label: 'No Drivers',
         icon: 'alert-circle' as const,
-        bg: '#FEF2F2',
+        bg: '#FEE2E2',
         text: '#DC2626',
-        border: '#FECACA',
       };
     case 'delivery_failed':
       return {
         label: 'Failed',
         icon: 'close-circle' as const,
-        bg: '#FEF2F2',
+        bg: '#FEE2E2',
         text: '#DC2626',
-        border: '#FECACA',
-      };
-    case 'pending':
-      return {
-        label: 'Pending',
-        icon: 'time' as const,
-        bg: '#FFFBEB',
-        text: '#B45309',
-        border: '#FDE68A',
-      };
-    case 'ordering_at_restaurant':
-      if (paymentStatus === 'completed') {
-        return {
-          label: 'Finding Driver',
-          icon: 'car' as const,
-          bg: '#EFF6FF',
-          text: '#1D4ED8',
-          border: '#BFDBFE',
-        };
-      }
-      return {
-        label: 'Ready to Pay',
-        icon: 'card' as const,
-        bg: colors.primarySoft,
-        text: colors.primaryText,
-        border: colors.primaryBorder,
-      };
-    case 'order_ready':
-      return {
-        label: 'Ready',
-        icon: 'bag-check' as const,
-        bg: '#EFF6FF',
-        text: '#1D4ED8',
-        border: '#BFDBFE',
-      };
-    case 'accepted_by_driver':
-      return {
-        label: 'Driver Assigned',
-        icon: 'car' as const,
-        bg: '#EFF6FF',
-        text: '#1D4ED8',
-        border: '#BFDBFE',
-      };
-    case 'picked_up':
-      return {
-        label: 'Picked Up',
-        icon: 'bicycle' as const,
-        bg: '#ECFDF5',
-        text: '#047857',
-        border: '#A7F3D0',
-      };
-    case 'on_the_way':
-      return {
-        label: 'On the Way',
-        icon: 'navigate' as const,
-        bg: '#ECFDF5',
-        text: '#047857',
-        border: '#A7F3D0',
-      };
-    case 'arrived':
-      return {
-        label: 'Arrived',
-        icon: 'location' as const,
-        bg: '#ECFDF5',
-        text: '#047857',
-        border: '#A7F3D0',
       };
     default:
       return {
-        label: status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-        icon: 'restaurant' as const,
-        bg: '#F3F4F6',
-        text: colors.textSecondary,
-        border: '#E5E7EB',
+        label: 'Active',
+        icon: 'time' as const,
+        bg: '#FFF7ED',
+        text: '#EA580C',
       };
   }
 };
 
+const getTrackerConfig = (status: string) => {
+  if (status === 'delivered') {
+    return {
+      mode: 'delivered' as const,
+      completedUpTo: 3,
+      floatingIndex: -1,
+      floatingLabel: '',
+    };
+  }
+  if (CANCELLED_OR_FAILED_SET.has(status)) {
+    return {
+      mode: 'error' as const,
+      completedUpTo: 0,
+      floatingIndex: -1,
+      floatingLabel: '',
+    };
+  }
+
+  let floatingLabel = 'On Way';
+  if (status === 'pending') floatingLabel = 'Placed';
+  else if (status === 'ordering_at_restaurant') floatingLabel = 'Preparing';
+  else if (status === 'order_ready') floatingLabel = 'Ready';
+  else if (status === 'accepted_by_driver') floatingLabel = 'Assigned';
+  else if (status === 'arrived') floatingLabel = 'Arrived';
+
+  return {
+    mode: 'active' as const,
+    completedUpTo: 2,
+    floatingIndex: 2,
+    floatingLabel,
+  };
+};
+
 const OrderCard: React.FC<OrderCardProps> = ({
   order,
-  actionLabel,
+  swapImages,
   onPress,
   onActionPress,
 }) => {
-  const logoUri =
+  const restaurantUri =
     resolveOrderMediaUrl(order.restaurant_logo) ||
     resolveOrderMediaUrl(order.restaurant_cover);
-  const itemThumbUri = resolveOrderMediaUrl(order.first_item_image);
+  const driverUri = resolveOrderMediaUrl(order.driver_image);
 
-  const [logoFailed, setLogoFailed] = useState(false);
-  const [thumbFailed, setThumbFailed] = useState(false);
-
-  useEffect(() => {
-    setLogoFailed(false);
-  }, [logoUri]);
+  const [driverFailed, setDriverFailed] = useState(false);
+  const [restaurantFailed, setRestaurantFailed] = useState(false);
 
   useEffect(() => {
-    setThumbFailed(false);
-  }, [itemThumbUri]);
+    setDriverFailed(false);
+  }, [driverUri]);
 
-  const statusMeta = getStatusAppearance(order.status, order.payment_status);
-  const isActive = ACTIVE_STATUS_SET.has(order.status);
-  const needsPayment =
-    order.status === 'ordering_at_restaurant' && order.payment_status !== 'completed';
-  const isTracking = TRACKING_STATUS_SET.has(order.status);
-  const isPrimaryAction = needsPayment || isTracking;
+  useEffect(() => {
+    setRestaurantFailed(false);
+  }, [restaurantUri]);
 
-  const resolvedActionLabel =
-    actionLabel ??
-    (needsPayment
-      ? 'Pay Now'
-      : order.status === 'picked_up'
-      ? 'Track Driver'
-      : isTracking
-      ? 'Track Order'
-      : 'View Order');
+  const shouldSwapImages = Boolean(swapImages || SWAP_DRIVER_AND_RESTAURANT_IMAGES);
+  const avatarKind = shouldSwapImages ? 'restaurant' : 'driver';
+  const featuredKind = shouldSwapImages ? 'driver' : 'restaurant';
 
-  const formattedTime = formatOrderTimestamp(order.placed_at || order.created_at);
-  const shortOrderRef = order.order_number ? `#${order.order_number}` : '';
-  const metaLine = [formattedTime, shortOrderRef].filter(Boolean).join('  •  ');
+  const avatarUri = avatarKind === 'driver' ? driverUri : restaurantUri;
+  const avatarFailed = avatarKind === 'driver' ? driverFailed : restaurantFailed;
+  const onAvatarError = () =>
+    avatarKind === 'driver' ? setDriverFailed(true) : setRestaurantFailed(true);
+
+  const featuredUri = featuredKind === 'restaurant' ? restaurantUri : driverUri;
+  const featuredFailed = featuredKind === 'restaurant' ? restaurantFailed : driverFailed;
+  const onFeaturedError = () =>
+    featuredKind === 'restaurant' ? setRestaurantFailed(true) : setDriverFailed(true);
+
+  const courierName =
+    String(order.rescue_courier?.name || '').trim() ||
+    [order.driver_first_name, order.driver_last_name].filter(Boolean).join(' ').trim();
+
   const itemsCount = Number(order.items_count || 0);
   const itemsSummary = String(order.items_summary || '').trim();
-  const hasItemsInfo = itemsSummary.length > 0 || itemsCount > 0;
+  const itemCountText = itemsCount > 0 ? `${itemsCount} ${itemsCount === 1 ? 'item' : 'items'}` : '';
+  const itemsSubtitle = [itemsSummary, itemCountText].filter(Boolean).join(' • ') || 'Order items';
+
+  const shortOrderId = order.order_number
+    ? `ID: #${order.order_number}`
+    : `ID: #${String(order.id || '').slice(0, 8).toUpperCase()}`;
+
+  const statusBadge = getStatusBadgeConfig(order.status);
+  const tracker = getTrackerConfig(order.status);
+  const formattedTime = formatOrderTimestamp(order.placed_at || order.created_at);
+  const totalLabel = order.payment_status === 'completed' ? 'Total Paid' : 'Order Total';
+  const isActive = ACTIVE_STATUS_SET.has(order.status);
+
+  const isDriverCar = String(order.driver_vehicle_type || '').toLowerCase().includes('car');
+
+  const renderFallbackIcon = (kind: 'driver' | 'restaurant', size: number) => {
+    if (kind === 'driver') {
+      return (
+        <View style={styles.driverFallbackInner}>
+          <Ionicons
+            name={courierName ? 'person' : isDriverCar ? 'car-outline' : 'car-sport-outline'}
+            size={size}
+            color="#6B7280"
+          />
+        </View>
+      );
+    }
+    return (
+      <View style={styles.restaurantFallbackInner}>
+        <Text style={[styles.restaurantInitials, size >= 28 && styles.restaurantInitialsLarge]}>
+          {getRestaurantInitials(order.restaurant_name)}
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <TouchableOpacity
-      style={[styles.container, isActive && styles.containerActive]}
+      style={styles.card}
       onPress={onPress ?? onActionPress}
-      activeOpacity={0.92}
+      activeOpacity={0.9}
+      accessibilityRole="button"
+      accessibilityLabel={`${shortOrderId}, ${statusBadge.label}`}
     >
-      {/* Header: Restaurant Logo + Name + Status Pill */}
-      <View style={styles.header}>
-        <View style={styles.logoWrapper}>
-          {logoUri && !logoFailed ? (
+      {/* Top Row: Circular Avatar + Order ID/Items/Courier + Status Pill */}
+      <View style={styles.topRow}>
+        <View style={styles.avatarCircle}>
+          {avatarUri && !avatarFailed ? (
             <Image
-              source={{ uri: logoUri }}
-              style={styles.logoImage}
+              source={{ uri: avatarUri }}
+              style={styles.fillImage}
               resizeMode="cover"
-              onError={() => setLogoFailed(true)}
+              onError={onAvatarError}
             />
           ) : (
-            <View style={styles.logoFallback}>
-              <Text style={styles.logoInitials}>
-                {getRestaurantInitials(order.restaurant_name)}
-              </Text>
-            </View>
+            renderFallbackIcon(avatarKind, 21)
           )}
-          {isActive && <View style={styles.liveCornerDot} />}
         </View>
 
-        <View style={styles.headerTextCol}>
-          <View style={styles.titleStatusRow}>
-            <Text style={styles.restaurantName} numberOfLines={1}>
-              {order.restaurant_name || 'Restaurant'}
-            </Text>
-
-            <View
-              style={[
-                styles.statusBadge,
-                {
-                  backgroundColor: statusMeta.bg,
-                  borderColor: statusMeta.border,
-                },
-              ]}
-            >
-              <Ionicons name={statusMeta.icon} size={12} color={statusMeta.text} />
-              <Text style={[styles.statusText, { color: statusMeta.text }]} numberOfLines={1}>
-                {statusMeta.label}
-              </Text>
-            </View>
-          </View>
-
-          {!!metaLine && (
-            <Text style={styles.metaLine} numberOfLines={1}>
-              {metaLine}
+        <View style={styles.titleStack}>
+          <Text style={styles.orderIdText} numberOfLines={1}>
+            {shortOrderId}
+          </Text>
+          <Text style={styles.itemsSubtitleText} numberOfLines={1}>
+            {itemsSubtitle}
+          </Text>
+          {!!courierName && (
+            <Text style={styles.courierSubtitleText} numberOfLines={1}>
+              Courier: {courierName}
             </Text>
           )}
+        </View>
+
+        <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
+          <Ionicons name={statusBadge.icon} size={12} color={statusBadge.text} />
+          <Text style={[styles.statusBadgeText, { color: statusBadge.text }]} numberOfLines={1}>
+            {statusBadge.label}
+          </Text>
         </View>
       </View>
 
-      {/* Item Preview Strip */}
-      {hasItemsInfo && (
-        <View style={styles.itemsStrip}>
-          {itemThumbUri && !thumbFailed ? (
-            <Image
-              source={{ uri: itemThumbUri }}
-              style={styles.itemThumb}
-              resizeMode="cover"
-              onError={() => setThumbFailed(true)}
-            />
-          ) : (
-            <View style={styles.itemIconBox}>
-              <Ionicons name="fast-food-outline" size={14} color={colors.textSecondary} />
-            </View>
-          )}
+      {/* Lower Body: Left (~68%) Tracker + Metadata | Right (~32%) Featured Image */}
+      <View style={styles.lowerBody}>
+        <View style={styles.leftColumn}>
+          {/* 4-Node Horizontal Dotted Progress Tracker */}
+          <View style={[styles.stepperWrap, isActive && styles.stepperWrapWithLabel]}>
+            {STEP_LABELS.map((stepLabel, idx) => {
+              const isErrorNode = tracker.mode === 'error' && idx === 0;
+              const isCompletedOrActive =
+                tracker.mode !== 'error' && idx <= tracker.completedUpTo;
+              const isFloatingHere =
+                tracker.mode === 'active' && idx === tracker.floatingIndex;
+              const connectorActive =
+                tracker.mode !== 'error' && idx < tracker.completedUpTo;
 
-          <Text style={styles.itemsSummaryText} numberOfLines={2}>
-            {itemsSummary || `${itemsCount} ${itemsCount === 1 ? 'item' : 'items'} ordered`}
-          </Text>
+              return (
+                <React.Fragment key={stepLabel}>
+                  <View style={styles.nodeSlot}>
+                    {isFloatingHere && (
+                      <View style={styles.floatingAnchor} pointerEvents="none">
+                        <View style={styles.floatingTag}>
+                          <Ionicons name="car-outline" size={11} color="#F97316" />
+                          <Text style={styles.floatingTagText} numberOfLines={1}>
+                            {tracker.floatingLabel}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
 
-          {itemsCount > 0 && (
-            <View style={styles.itemCountPill}>
-              <Text style={styles.itemCountText}>
-                {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
+                    <View
+                      style={[
+                        styles.nodeOuter,
+                        isCompletedOrActive && styles.nodeOuterOrange,
+                        isErrorNode && styles.nodeOuterError,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.nodeDot,
+                          isCompletedOrActive && styles.nodeDotOrange,
+                          isErrorNode && styles.nodeDotError,
+                        ]}
+                      >
+                        {isCompletedOrActive && (
+                          <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                        )}
+                        {isErrorNode && (
+                          <Ionicons name="close" size={10} color="#FFFFFF" />
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {idx < STEP_LABELS.length - 1 && (
+                    <View style={styles.dottedTrack}>
+                      {[0, 1, 2, 3, 4].map((dotIdx) => (
+                        <View
+                          key={dotIdx}
+                          style={[
+                            styles.trackDot,
+                            connectorActive && styles.trackDotOrange,
+                          ]}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </View>
+
+          {/* Bottom Two-Column Info Row */}
+          <View style={styles.metaRow}>
+            <View style={styles.metaColLeft}>
+              <Text style={styles.metaLabel} numberOfLines={1}>
+                {formattedTime}
+              </Text>
+              <Text style={styles.restaurantValue} numberOfLines={1}>
+                {order.restaurant_name || 'Restaurant'}
               </Text>
             </View>
-          )}
-        </View>
-      )}
 
-      {/* Assigned Driver Chip */}
-      {!!order.driver_first_name && (
-        <View style={styles.driverRow}>
-          <Ionicons name="car-sport-outline" size={14} color={colors.primaryText} />
-          <Text style={styles.driverName} numberOfLines={1}>
-            Courier: {order.driver_first_name} {order.driver_last_name || ''}
-          </Text>
-        </View>
-      )}
-
-      {/* Footer: Total + Action CTA */}
-      <View style={styles.footer}>
-        <View style={styles.totalContainer}>
-          <Text style={styles.totalLabel}>
-            {order.payment_status === 'completed' ? 'Total Paid' : 'Order Total'}
-          </Text>
-          <Text style={styles.totalAmount}>R {Number(order.total_amount || 0).toFixed(2)}</Text>
+            <View style={styles.metaColRight}>
+              <Text style={styles.metaTotalLabel} numberOfLines={1}>
+                {totalLabel}
+              </Text>
+              <Text style={styles.priceValue} numberOfLines={1}>
+                R {Number(order.total_amount || 0).toFixed(2)}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <TouchableOpacity
-          style={[
-            styles.actionBtn,
-            isPrimaryAction ? styles.actionBtnPrimary : styles.actionBtnSecondary,
-          ]}
-          onPress={onActionPress ?? onPress}
-          activeOpacity={0.82}
-          disabled={!onActionPress && !onPress}
-        >
-          {needsPayment && (
-            <Ionicons name="card-outline" size={14} color={colors.onPrimary} />
-          )}
-          {isTracking && (
-            <Ionicons name="navigate" size={14} color={colors.onPrimary} />
-          )}
-          <Text
-            style={[
-              styles.actionBtnText,
-              isPrimaryAction ? styles.actionBtnTextPrimary : styles.actionBtnTextSecondary,
-            ]}
-          >
-            {resolvedActionLabel}
-          </Text>
-          {!isPrimaryAction && (
-            <Ionicons name="chevron-forward" size={14} color={colors.textPrimary} />
-          )}
-        </TouchableOpacity>
+        <View style={styles.rightColumn}>
+          <View style={styles.featuredImageBox}>
+            {featuredUri && !featuredFailed ? (
+              <Image
+                source={{ uri: featuredUri }}
+                style={styles.fillImage}
+                resizeMode="cover"
+                onError={onFeaturedError}
+              />
+            ) : (
+              renderFallbackIcon(featuredKind, 28)
+            )}
+          </View>
+        </View>
       </View>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     borderCurve: 'continuous',
-    padding: 14,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 14,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 1,
+    borderColor: '#EEF0F4',
+    boxShadow: '0 4px 14px rgba(17, 24, 39, 0.06)',
   },
-  containerActive: {
-    borderColor: colors.primaryBorder,
-    shadowOpacity: 0.07,
-    elevation: 2,
-  },
-  header: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
-  logoWrapper: {
-    position: 'relative',
-    width: 48,
-    height: 48,
-  },
-  logoImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#E5E7EB',
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
+    borderColor: '#F3F4F6',
   },
-  logoFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    borderCurve: 'continuous',
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
+  fillImage: {
+    width: '100%',
+    height: '100%',
+  },
+  driverFallbackInner: {
+    flex: 1,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  logoInitials: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.onPrimary,
-    letterSpacing: -0.4,
-  },
-  liveCornerDot: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.success,
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  headerTextCol: {
+  restaurantFallbackInner: {
     flex: 1,
-    gap: 5,
-  },
-  titleStatusRow: {
-    flexDirection: 'row',
+    backgroundColor: '#1F2937',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    justifyContent: 'center',
   },
-  restaurantName: {
-    flex: 1,
-    fontSize: 16.5,
+  restaurantInitials: {
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '800',
-    color: colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  restaurantInitialsLarge: {
+    fontSize: 24,
+  },
+  titleStack: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  orderIdText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
     letterSpacing: -0.2,
+  },
+  itemsSubtitleText: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  courierSubtitleText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '500',
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 9,
+    borderRadius: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
+    alignSelf: 'flex-start',
     flexShrink: 0,
   },
-  statusText: {
+  statusBadgeText: {
     fontSize: 11.5,
     fontWeight: '700',
   },
-  metaLine: {
-    fontSize: 12,
-    color: colors.muted,
-    fontWeight: '500',
+  lowerBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 14,
   },
-  itemsStrip: {
-    marginTop: 11,
+  leftColumn: {
+    flex: 1,
+    paddingRight: 14,
+    justifyContent: 'space-between',
+  },
+  rightColumn: {
+    width: 92,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  featuredImageBox: {
+    width: 92,
+    height: 92,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+    backgroundColor: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  stepperWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.background,
-    borderRadius: 10,
-    borderCurve: 'continuous',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingTop: 4,
+    paddingBottom: 14,
   },
-  itemThumb: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceMuted,
+  stepperWrapWithLabel: {
+    paddingTop: 20,
   },
-  itemIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceMuted,
+  nodeSlot: {
+    width: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  floatingAnchor: {
+    position: 'absolute',
+    bottom: 24,
+    left: -31,
+    width: 84,
+    alignItems: 'center',
+  },
+  floatingTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  floatingTagText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#EA580C',
+  },
+  nodeOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  itemsSummaryText: {
+  nodeOuterOrange: {
+    backgroundColor: '#FFEDD5',
+  },
+  nodeOuterError: {
+    backgroundColor: '#FEE2E2',
+  },
+  nodeDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nodeDotOrange: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F97316',
+  },
+  nodeDotError: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+  },
+  dottedTrack: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    lineHeight: 17,
-  },
-  itemCountPill: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  itemCountText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.muted,
-  },
-  driverRow: {
-    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-evenly',
     paddingHorizontal: 2,
   },
-  driverName: {
-    flex: 1,
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: colors.textSecondary,
+  trackDot: {
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 1.75,
+    backgroundColor: '#E5E7EB',
   },
-  footer: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
+  trackDotOrange: {
+    backgroundColor: '#F97316',
+  },
+  metaRow: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 10,
   },
-  totalContainer: {
-    gap: 1,
+  metaColLeft: {
+    flex: 1,
   },
-  totalLabel: {
+  metaColRight: {
+    alignItems: 'flex-start',
+  },
+  metaLabel: {
     fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  metaTotalLabel: {
+    fontSize: 10.5,
+    color: '#9CA3AF',
     fontWeight: '600',
-    color: colors.muted,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
-  totalAmount: {
-    fontSize: 17.5,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  actionBtnPrimary: {
-    backgroundColor: colors.primary,
-  },
-  actionBtnSecondary: {
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  actionBtnText: {
+  restaurantValue: {
     fontSize: 13,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 2,
+  },
+  priceValue: {
+    fontSize: 14,
     fontWeight: '700',
-  },
-  actionBtnTextPrimary: {
-    color: colors.onPrimary,
-  },
-  actionBtnTextSecondary: {
-    color: colors.textPrimary,
+    color: '#111827',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
 });
 

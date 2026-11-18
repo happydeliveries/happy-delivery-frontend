@@ -5,7 +5,6 @@ import { router } from 'expo-router';
 import { releaseDriverOrderAlertResources } from '../services/driverAlertSound';
 import { useDriverAlertStore } from '../store/driverAlertStore';
 import { useAddressStore } from '../store/addressStore';
-import { useFeedbackStore } from '../store/feedbackStore';
 
 type User = {
   id: string;
@@ -15,6 +14,7 @@ type User = {
   last_name: string;
   phone_number: string;
   profile_image_url?: string;
+  email_verified?: boolean;
 };
 
 type AuthContextType = {
@@ -23,6 +23,7 @@ type AuthContextType = {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: any) => Promise<void>;
+  verifyEmail: (payload: { email: string; code: string }) => Promise<{ verified: boolean; pendingApproval: boolean }>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => void;
 };
@@ -42,21 +43,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
     loadStoredAuth();
   }, []);
 
+  const navigateByRole = (role?: string) => {
+    switch (role) {
+      case 'customer':
+        router.replace('/(customer)/home');
+        break;
+      case 'driver':
+        router.replace('/(driver)/dashboard');
+        break;
+      case 'restaurant_manager':
+        router.replace('/(manager)/dashboard');
+        break;
+    }
+  };
+
+  const applyAuthenticatedSession = async (nextToken: string, nextUser: User) => {
+    await AsyncStorage.setItem('token', nextToken);
+    await AsyncStorage.setItem('user', JSON.stringify(nextUser));
+    setToken(nextToken);
+    setUser(nextUser);
+    if (nextUser.role === 'customer') {
+      useAddressStore.getState().syncSavedAddresses().catch(() => {});
+    }
+    navigateByRole(nextUser.role);
+  };
+
   const loadStoredAuth = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
       const storedUserRaw = await AsyncStorage.getItem('user');
-      
+
       if (storedToken && storedUserRaw) {
         const storedUser = JSON.parse(storedUserRaw);
         setToken(storedToken);
         setUser(storedUser);
-        
-        // Verify token with backend
+
         try {
           const currentUser = await authService.getProfile();
-          // API interceptor returns response.data directly.
-          // Backend may return: { user: {...} } or { data: { user: {...} } } or just the user object
           const freshUser = (currentUser as any)?.user ?? (currentUser as any)?.data?.user ?? currentUser;
           if (freshUser?.id) {
             setUser(freshUser);
@@ -66,8 +89,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             }
           }
         } catch (err: any) {
-          // Only clear token on 401 Unauthorized — not on network timeouts or 500/503 DB errors
-          if (err?.response?.status === 401) {
+          const status = err?.response?.status;
+          if (status === 401 || status === 403) {
             await authService.logout();
             useAddressStore.getState().resetForLogout();
             setToken(null);
@@ -86,82 +109,51 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (email: string, password: string) => {
     const response = await authService.login(email, password);
-    
-    // API interceptor returns response.data directly
-    // Backend returns: { token: "...", user: {...} }
     const nextToken = (response as any)?.token ?? (response as any)?.data?.token;
     const nextUser = (response as any)?.user ?? (response as any)?.data?.user;
 
     if (!nextToken || !nextUser) throw new Error('Invalid login response from server');
-
-    await AsyncStorage.setItem('token', nextToken);
-    await AsyncStorage.setItem('user', JSON.stringify(nextUser));
-    
-    setToken(nextToken);
-    setUser(nextUser);
-    if (nextUser.role === 'customer') {
-      useAddressStore.getState().syncSavedAddresses().catch(() => {});
-    }
-
-    // Redirect based on role
-    switch (nextUser.role) {
-      case 'customer':
-        router.replace('/(customer)/home');
-        break;
-      case 'driver':
-        router.replace('/(driver)/dashboard');
-        break;
-      case 'restaurant_manager':
-        router.replace('/(manager)/dashboard');
-        break;
-    }
+    await applyAuthenticatedSession(nextToken, nextUser);
   };
 
   const register = async (data: any) => {
-    const response = await authService.register(data);
+    const response: any = await authService.register(data);
+    const requiresVerify =
+      Boolean(response?.requires_email_verification) ||
+      Boolean(response?.data?.requires_email_verification);
+    const pendingApproval =
+      Boolean(response?.pending_approval) ||
+      Boolean(response?.data?.pending_approval);
+    const registeredUser = response?.user ?? response?.data?.user;
 
-    // If registering a driver account, it requires manager approval before login
-    if ((response as any)?.pending_approval || (response as any)?.data?.pending_approval) {
-      useFeedbackStore.getState().showPopup({
-        type: 'success',
-        title: 'Application Pending Approval',
-        message:
-          (response as any)?.message ||
-          'Your driver application has been submitted for manager review. You will receive an email once your account is approved and ready to sign in.',
-        primaryLabel: 'OK',
-        onPrimary: () => router.replace('/(auth)/login'),
-      });
-      router.replace('/(auth)/login');
+    if (requiresVerify) {
+      const emailParam = encodeURIComponent(String(registeredUser?.email || data?.email || ''));
+      const roleParam = encodeURIComponent(String(registeredUser?.role || data?.role || 'customer'));
+      router.replace(
+        `/(auth)/verify-email?email=${emailParam}&role=${roleParam}&pendingApproval=${pendingApproval ? '1' : '0'}`
+      );
       return;
     }
-    
-    // API interceptor returns response.data directly
-    const nextToken = (response as any)?.token ?? (response as any)?.data?.token;
-    const nextUser = (response as any)?.user ?? (response as any)?.data?.user;
 
+    const nextToken = response?.token ?? response?.data?.token;
+    const nextUser = response?.user ?? response?.data?.user;
     if (!nextToken || !nextUser) throw new Error('Invalid register response from server');
+    await applyAuthenticatedSession(nextToken, nextUser);
+  };
 
-    await AsyncStorage.setItem('token', nextToken);
-    await AsyncStorage.setItem('user', JSON.stringify(nextUser));
-    
-    setToken(nextToken);
-    setUser(nextUser);
-    if (nextUser.role === 'customer') {
-      useAddressStore.getState().syncSavedAddresses().catch(() => {});
+  const verifyEmail = async ({ email, code }: { email: string; code: string }) => {
+    const res: any = await authService.verifyEmail({ email, code });
+    const data = res?.data ?? res;
+    const nextToken = data?.token;
+    const nextUser = data?.user;
+    const pendingApproval = Boolean(data?.pending_approval ?? res?.pending_approval);
+
+    if (nextToken && nextUser && !pendingApproval) {
+      await applyAuthenticatedSession(nextToken, nextUser);
+      return { verified: true, pendingApproval: false };
     }
 
-    // Redirect based on role
-    switch (nextUser.role) {
-      case 'customer':
-        router.replace('/(customer)/home');
-        break;
-      case 'driver':
-        router.replace('/(driver)/dashboard');
-        break;
-      case 'restaurant_manager':
-        router.replace('/(manager)/dashboard');
-        break;
-    }
+    return { verified: true, pendingApproval };
   };
 
   const logout = async () => {
@@ -190,6 +182,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isLoading,
         login,
         register,
+        verifyEmail,
         logout,
         updateUser,
       }}
@@ -201,7 +194,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;

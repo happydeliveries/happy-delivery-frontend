@@ -47,6 +47,20 @@ export default function LoginScreen() {
       await login(email.trim(), password);
       // Navigation is handled in useAuth hook
     } catch (err: any) {
+      if (err?.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
+        const cleanEmail = encodeURIComponent(err.response.data.email || email.trim().toLowerCase());
+        const role = encodeURIComponent(err.response.data.role || 'customer');
+        setError('Your email address is not verified yet.');
+        showPopup({
+          type: 'info',
+          title: 'Email Verification Required',
+          message: 'Please verify your email address before signing in. Would you like to enter your verification code or resend the email?',
+          primaryLabel: 'Verify Email',
+          onPrimary: () => router.push(`/(auth)/verify-email?email=${cleanEmail}&role=${role}`),
+          secondaryLabel: 'Cancel',
+        });
+        return;
+      }
       const friendlyMsg = getFriendlyErrorMessage(err, 'login');
       setError(friendlyMsg);
       showFriendlyError(err, { context: 'login' });

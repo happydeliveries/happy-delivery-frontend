@@ -18,6 +18,32 @@ export const authService = {
     return api.post('/auth/login', { email, password });
   },
 
+  async uploadAvatar(uri: string) {
+    const cleanName = uri.split('/').pop() || `selfie-${Date.now()}.jpg`;
+    const ext = cleanName.split('.').pop()?.toLowerCase();
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const formData = new FormData();
+    formData.append('image', {
+      uri,
+      name: cleanName.includes('.') ? cleanName : `${cleanName}.jpg`,
+      type: mimeType,
+    } as any);
+    return api.post('/auth/upload-avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 30000,
+    });
+  },
+
+  async verifyEmail(payload: { email?: string; code?: string; token?: string }) {
+    return api.post('/auth/verify-email', payload);
+  },
+
+  async resendVerification(email: string) {
+    return api.post('/auth/resend-verification', { email });
+  },
+
   async getCurrentUser() {
     return api.get('/auth/me');
   },

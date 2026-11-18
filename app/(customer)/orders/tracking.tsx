@@ -11,6 +11,8 @@ import {
   LayoutAnimation,
   UIManager,
   AppState,
+  Image,
+  Modal,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +21,7 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { customerColors as colors } from '../../../constants/customerTheme';
+import { resolveOrderMediaUrl } from '../../../components/customer/OrderCard';
 import { orderService } from '../../../services/order';
 import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
 import {
@@ -72,6 +75,16 @@ export default function TrackingScreen() {
   const [showQR, setShowQR] = useState(false);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [supportPhoneFallback, setSupportPhoneFallback] = useState<string | null>(null);
+  const [driverPhotoLoaded, setDriverPhotoLoaded] = useState(false);
+  const [driverPhotoFailed, setDriverPhotoFailed] = useState(false);
+  const [showDriverPhotoModal, setShowDriverPhotoModal] = useState(false);
+
+  const driverPhotoUri = resolveOrderMediaUrl(order?.driver_image);
+
+  useEffect(() => {
+    setDriverPhotoLoaded(false);
+    setDriverPhotoFailed(false);
+  }, [order?.driver_image]);
 
   useEffect(() => {
     orderService
@@ -692,14 +705,18 @@ export default function TrackingScreen() {
           </>
         )}
 
-        {/* Smooth Animated & Rotated Live Driver Marker */}
+        {/* Smooth Animated Driver Face Marker with Directional Ring */}
         {!!effectiveDriverLocation && (
           <Marker
             coordinate={effectiveDriverLocation}
             anchor={{ x: 0.5, y: 0.5 }}
             flat
-            rotation={Platform.OS === 'android' ? displayDriverHeading : 0}
-            tracksViewChanges={Platform.OS === 'ios' || isMarkerAnimating}
+            rotation={0}
+            tracksViewChanges={
+              Platform.OS === 'ios' ||
+              isMarkerAnimating ||
+              (Boolean(driverPhotoUri) && !driverPhotoLoaded && !driverPhotoFailed)
+            }
             title={
               order.driver_first_name
                 ? `${order.driver_first_name} (${order.status === 'picked_up' ? 'Order Picked Up' : 'Driver'})`
@@ -715,9 +732,7 @@ export default function TrackingScreen() {
               <View
                 style={[
                   styles.driverHeadingRing,
-                  Platform.OS === 'ios'
-                    ? { transform: [{ rotate: `${displayDriverHeading}deg` }] }
-                    : null,
+                  { transform: [{ rotate: `${displayDriverHeading}deg` }] },
                 ]}
               >
                 <View
@@ -728,15 +743,28 @@ export default function TrackingScreen() {
                 />
               </View>
               <View style={[styles.markerDriver, isPickedUpOrEnRoute && styles.markerDriverActive]}>
-                <Ionicons
-                  name={
-                    String(order.driver_vehicle_type || '').toLowerCase().includes('car')
-                      ? 'car'
-                      : 'bicycle'
-                  }
-                  size={19}
-                  color="#fff"
-                />
+                {driverPhotoUri && !driverPhotoFailed ? (
+                  <Image
+                    source={{ uri: driverPhotoUri }}
+                    style={styles.markerDriverPhoto}
+                    resizeMode="cover"
+                    onLoad={() => setDriverPhotoLoaded(true)}
+                    onError={() => {
+                      setDriverPhotoFailed(true);
+                      setDriverPhotoLoaded(false);
+                    }}
+                  />
+                ) : (
+                  <Ionicons
+                    name={
+                      String(order.driver_vehicle_type || '').toLowerCase().includes('car')
+                        ? 'car'
+                        : 'bicycle'
+                    }
+                    size={19}
+                    color="#fff"
+                  />
+                )}
               </View>
             </View>
           </Marker>
@@ -873,12 +901,26 @@ export default function TrackingScreen() {
         ) : order.driver_id ? (
           <View style={styles.driverSection}>
             <View style={styles.driverRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {(order.driver_first_name || 'D').charAt(0)}
-                  {(order.driver_last_name || 'R').charAt(0)}
-                </Text>
-              </View>
+              <TouchableOpacity
+                style={styles.avatar}
+                activeOpacity={driverPhotoUri && !driverPhotoFailed ? 0.8 : 1}
+                disabled={!driverPhotoUri || driverPhotoFailed}
+                onPress={() => setShowDriverPhotoModal(true)}
+              >
+                {driverPhotoUri && !driverPhotoFailed ? (
+                  <Image
+                    source={{ uri: driverPhotoUri }}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                    onError={() => setDriverPhotoFailed(true)}
+                  />
+                ) : (
+                  <Text style={styles.avatarText}>
+                    {(order.driver_first_name || 'D').charAt(0)}
+                    {(order.driver_last_name || 'R').charAt(0)}
+                  </Text>
+                )}
+              </TouchableOpacity>
               <View style={styles.driverInfoBlock}>
                 <Text style={styles.driverName}>
                   {order.driver_first_name || 'Assigned'} {order.driver_last_name || 'Driver'}
@@ -982,6 +1024,49 @@ export default function TrackingScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal
+        visible={showDriverPhotoModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDriverPhotoModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.photoModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowDriverPhotoModal(false)}
+        >
+          <View style={styles.photoModalCard}>
+            {driverPhotoUri ? (
+              <Image
+                source={{ uri: driverPhotoUri }}
+                style={styles.photoModalImage}
+                resizeMode="cover"
+              />
+            ) : null}
+            <Text style={styles.photoModalName}>
+              {order.driver_first_name || 'Your'} {order.driver_last_name || 'Driver'}
+            </Text>
+            {!!(order.driver_vehicle_model || order.driver_vehicle_plate || order.driver_vehicle_type) && (
+              <Text style={styles.photoModalMeta}>
+                {[
+                  order.driver_vehicle_color,
+                  order.driver_vehicle_model || order.driver_vehicle_type,
+                  order.driver_vehicle_plate,
+                ]
+                  .filter(Boolean)
+                  .join(' • ')}
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.photoModalCloseBtn}
+              onPress={() => setShowDriverPhotoModal(false)}
+            >
+              <Text style={styles.photoModalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1039,12 +1124,13 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   markerDriver: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#1A1A1A',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
     borderWidth: 2.5,
     borderColor: '#fff',
     shadowColor: '#000',
@@ -1053,19 +1139,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
+  markerDriverPhoto: {
+    width: '100%',
+    height: '100%',
+  },
   markerDriverActive: {
     backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   driverMarkerWrap: {
-    width: 58,
-    height: 58,
+    width: 64,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
   },
   driverHeadingRing: {
     position: 'absolute',
-    width: 58,
-    height: 58,
+    width: 64,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
@@ -1293,6 +1384,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F0F0',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     fontSize: 18,
@@ -1430,6 +1528,54 @@ const styles = StyleSheet.create({
   terminalCtaText: {
     color: '#fff',
     fontSize: 15,
+    fontWeight: '700',
+  },
+  photoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  photoModalCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+  },
+  photoModalImage: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    borderWidth: 4,
+    borderColor: '#F1F5F9',
+    marginBottom: 16,
+    backgroundColor: '#F1F5F9',
+  },
+  photoModalName: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    textAlign: 'center',
+  },
+  photoModalMeta: {
+    marginTop: 6,
+    fontSize: 13.5,
+    color: '#666',
+    textAlign: 'center',
+  },
+  photoModalCloseBtn: {
+    marginTop: 18,
+    backgroundColor: '#1A1A1A',
+    paddingHorizontal: 28,
+    paddingVertical: 11,
+    borderRadius: 999,
+  },
+  photoModalCloseText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '700',
   },
 });

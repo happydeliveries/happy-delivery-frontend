@@ -16,10 +16,11 @@ import OrderCard, {
   CustomerOrderSummary,
   resolveOrderMediaUrl,
 } from '../../../components/customer/OrderCard';
-import { customerColors as colors } from '../../../constants/customerTheme';
 import { orderService } from '../../../services/order';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSocket } from '../../../hooks/useSocket';
+
+const SWAP_DRIVER_AND_RESTAURANT_IMAGES = false;
 
 const TRACKING_STATUSES = ['accepted_by_driver', 'picked_up', 'on_the_way', 'arrived'];
 const ALL_ACTIVE_STATUSES = [
@@ -187,7 +188,7 @@ export default function OrdersScreen() {
                 onError={() => setSpotlightLogoFailed(true)}
               />
             ) : (
-              <Ionicons name="restaurant" size={20} color={colors.onPrimary} />
+              <Ionicons name="restaurant" size={20} color="#FFFFFF" />
             )}
           </View>
 
@@ -216,7 +217,7 @@ export default function OrdersScreen() {
             }
             activeOpacity={0.85}
           >
-            <Ionicons name="navigate" size={15} color={colors.onPrimary} />
+            <Ionicons name="navigate" size={15} color="#FFFFFF" />
             <Text style={styles.spotlightPrimaryBtnText}>Track Live on Map</Text>
           </TouchableOpacity>
 
@@ -240,8 +241,8 @@ export default function OrdersScreen() {
         <View style={styles.emptyIllustration}>
           <Ionicons
             name={!user ? 'person-outline' : isFilteredEmpty ? 'filter-outline' : 'fast-food-outline'}
-            size={40}
-            color={colors.primaryText}
+            size={38}
+            color="#111827"
           />
         </View>
 
@@ -277,7 +278,7 @@ export default function OrdersScreen() {
           <Ionicons
             name={!user ? 'log-in-outline' : isFilteredEmpty ? 'layers-outline' : 'compass-outline'}
             size={18}
-            color={colors.onPrimary}
+            color="#FFFFFF"
           />
           <Text style={styles.browseButtonText}>
             {!user ? 'Sign In' : isFilteredEmpty ? 'Show All Orders' : 'Browse Restaurants'}
@@ -290,19 +291,25 @@ export default function OrdersScreen() {
   const renderLoadingState = () => (
     <View style={styles.loadingWrapper}>
       <View style={styles.loadingTop}>
-        <ActivityIndicator size="small" color={colors.primaryText} />
+        <ActivityIndicator size="small" color="#1C1C1E" />
         <Text style={styles.loadingText}>Fetching your orders...</Text>
       </View>
       {[0, 1, 2].map((idx) => (
         <View key={idx} style={styles.skeletonCard}>
           <View style={styles.skeletonRow}>
-            <View style={styles.skeletonLogo} />
+            <View style={styles.skeletonAvatar} />
             <View style={{ flex: 1, gap: 8 }}>
               <View style={styles.skeletonLineWide} />
               <View style={styles.skeletonLineShort} />
             </View>
           </View>
-          <View style={styles.skeletonStrip} />
+          <View style={styles.skeletonBodyRow}>
+            <View style={{ flex: 1, gap: 14 }}>
+              <View style={styles.skeletonTrack} />
+              <View style={styles.skeletonLineWide} />
+            </View>
+            <View style={styles.skeletonBox} />
+          </View>
         </View>
       ))}
     </View>
@@ -310,31 +317,21 @@ export default function OrdersScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Seamless Cream Header */}
+      {/* Minimal Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.title}>My Orders</Text>
           <Text style={styles.subtitle}>{subtitleText}</Text>
         </View>
 
-        {counts.active > 0 ? (
-          <TouchableOpacity
-            style={styles.activeCountBadge}
-            onPress={() => setSelectedFilter('active')}
-            activeOpacity={0.8}
-          >
-            <View style={styles.activeBadgeDot} />
-            <Text style={styles.activeCountText}>{counts.active} Active</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.refreshIconBtn}
-            onPress={onRefresh}
-            accessibilityLabel="Refresh orders"
-          >
-            <Ionicons name="refresh-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.refreshIconBtn}
+          onPress={onRefresh}
+          activeOpacity={0.8}
+          accessibilityLabel="Refresh orders"
+        >
+          <Ionicons name="refresh-outline" size={20} color="#111827" />
+        </TouchableOpacity>
       </View>
 
       {/* Filter Pills */}
@@ -351,7 +348,7 @@ export default function OrdersScreen() {
               <TouchableOpacity
                 style={[styles.filterButton, active && styles.filterButtonActive]}
                 onPress={() => setSelectedFilter(item.key)}
-                activeOpacity={0.8}
+                activeOpacity={0.82}
               >
                 <Text style={[styles.filterText, active && styles.filterTextActive]}>
                   {item.label}
@@ -382,41 +379,20 @@ export default function OrdersScreen() {
           data={filteredOrders}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={renderSpotlightBanner}
-          renderItem={({ item }) => {
-            const needsPayment =
-              item.status === 'ordering_at_restaurant' && item.payment_status !== 'completed';
-            const isTracking = TRACKING_STATUSES.includes(item.status);
-
-            return (
-              <OrderCard
-                order={item}
-                actionLabel={
-                  needsPayment
-                    ? 'Pay Now'
-                    : item.status === 'picked_up'
-                    ? 'Track Driver'
-                    : isTracking
-                    ? 'Track Order'
-                    : 'View Details'
-                }
-                onPress={() => router.push(`/(customer)/orders/${item.id}`)}
-                onActionPress={
-                  needsPayment
-                    ? () => router.push(`/(customer)/orders/${item.id}`)
-                    : isTracking
-                    ? () => router.push(`/(customer)/orders/tracking?id=${item.id}`)
-                    : () => router.push(`/(customer)/orders/${item.id}`)
-                }
-              />
-            );
-          }}
+          renderItem={({ item }) => (
+            <OrderCard
+              order={item}
+              swapImages={SWAP_DRIVER_AND_RESTAURANT_IMAGES}
+              onPress={() => router.push(`/(customer)/orders/${item.id}`)}
+            />
+          )}
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primaryText}
-              colors={[colors.primaryText, colors.primary]}
+              tintColor="#1C1C1E"
+              colors={['#1C1C1E', '#F97316']}
             />
           }
           ListEmptyComponent={renderEmptyState}
@@ -430,7 +406,7 @@ export default function OrdersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F6F7F9',
   },
   header: {
     flexDirection: 'row',
@@ -439,7 +415,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 14,
-    backgroundColor: colors.background,
+    backgroundColor: '#F6F7F9',
   },
   headerLeft: {
     flex: 1,
@@ -448,113 +424,89 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: colors.textPrimary,
+    color: '#111827',
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 13.5,
-    color: colors.muted,
+    color: '#6B7280',
     marginTop: 2,
     fontWeight: '500',
-  },
-  activeCountBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.primarySoft,
-    borderWidth: 1,
-    borderColor: colors.primaryBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  activeBadgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success,
-  },
-  activeCountText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: colors.primaryText,
   },
   refreshIconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+    boxShadow: '0 2px 6px rgba(17, 24, 39, 0.05)',
   },
   filterContainer: {
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingBottom: 12,
+    backgroundColor: '#F6F7F9',
   },
   filterList: {
     paddingHorizontal: 20,
-    gap: 10,
+    gap: 8,
   },
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#D1D5DB',
   },
   filterButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primaryDark,
+    backgroundColor: '#1C1C1E',
+    borderColor: '#1C1C1E',
   },
   filterText: {
     fontSize: 13.5,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: '#374151',
   },
   filterTextActive: {
-    color: colors.onPrimary,
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   filterCountPill: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 7,
     paddingVertical: 1,
     borderRadius: 999,
   },
   filterCountPillActive: {
-    backgroundColor: 'rgba(24, 24, 27, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
   },
   filterCountText: {
     fontSize: 11.5,
     fontWeight: '700',
-    color: colors.muted,
+    color: '#4B5563',
+    fontVariant: ['tabular-nums'],
   },
   filterCountTextActive: {
-    color: colors.onPrimary,
+    color: '#FFFFFF',
   },
   listContent: {
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 6,
     paddingBottom: 110,
     flexGrow: 1,
   },
   spotlightCard: {
-    backgroundColor: colors.onPrimary,
-    borderRadius: 16,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 20,
     borderCurve: 'continuous',
     padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 3,
+    marginBottom: 14,
+    boxShadow: '0 6px 16px rgba(17, 24, 39, 0.14)',
   },
   spotlightTopRow: {
     flexDirection: 'row',
@@ -564,8 +516,8 @@ const styles = StyleSheet.create({
   spotlightLogoBox: {
     width: 46,
     height: 46,
-    borderRadius: 10,
-    backgroundColor: colors.primary,
+    borderRadius: 12,
+    backgroundColor: '#2C2C2E',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -588,7 +540,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(255, 204, 0, 0.18)',
+    backgroundColor: 'rgba(249, 115, 22, 0.2)',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
@@ -597,18 +549,18 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.primary,
+    backgroundColor: '#F97316',
   },
   spotlightLiveText: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: colors.primary,
+    color: '#FB923C',
     letterSpacing: 0.5,
   },
   spotlightOrderNum: {
     fontSize: 11.5,
     fontWeight: '600',
-    color: 'rgba(255, 251, 242, 0.65)',
+    color: 'rgba(255, 255, 255, 0.65)',
   },
   spotlightTitle: {
     fontSize: 16.5,
@@ -617,7 +569,7 @@ const styles = StyleSheet.create({
   },
   spotlightSub: {
     fontSize: 13,
-    color: 'rgba(255, 251, 242, 0.8)',
+    color: 'rgba(255, 255, 255, 0.78)',
   },
   spotlightActions: {
     flexDirection: 'row',
@@ -630,20 +582,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: colors.primary,
+    backgroundColor: '#F97316',
     paddingVertical: 10,
     borderRadius: 999,
   },
   spotlightPrimaryBtnText: {
     fontSize: 13.5,
     fontWeight: '800',
-    color: colors.onPrimary,
+    color: '#FFFFFF',
   },
   spotlightSecondaryBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -666,43 +618,55 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 13.5,
     fontWeight: '600',
-    color: colors.muted,
+    color: '#6B7280',
   },
   skeletonCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
+    borderColor: '#EEF0F4',
+    gap: 14,
   },
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  skeletonLogo: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: colors.surfaceMuted,
+  skeletonAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E5E7EB',
   },
   skeletonLineWide: {
-    height: 14,
-    width: '68%',
+    height: 13,
+    width: '70%',
     borderRadius: 6,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: '#E5E7EB',
   },
   skeletonLineShort: {
     height: 11,
-    width: '44%',
+    width: '48%',
     borderRadius: 5,
-    backgroundColor: colors.background,
+    backgroundColor: '#F3F4F6',
   },
-  skeletonStrip: {
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.background,
+  skeletonBodyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 14,
+  },
+  skeletonTrack: {
+    height: 16,
+    width: '100%',
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  skeletonBox: {
+    width: 92,
+    height: 92,
+    borderRadius: 16,
+    backgroundColor: '#E5E7EB',
   },
   emptyContainer: {
     flex: 1,
@@ -712,26 +676,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyIllustration: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: colors.primarySoft,
-    borderWidth: 2,
-    borderColor: colors.primaryBorder,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
+    boxShadow: '0 4px 12px rgba(17, 24, 39, 0.05)',
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: colors.textPrimary,
+    color: '#111827',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 14.5,
-    color: colors.muted,
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 21,
     marginBottom: 26,
@@ -740,14 +705,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: '#1C1C1E',
     paddingHorizontal: 26,
     paddingVertical: 14,
     borderRadius: 999,
   },
   browseButtonText: {
-    color: colors.onPrimary,
+    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });

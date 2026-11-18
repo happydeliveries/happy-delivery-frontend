@@ -11,11 +11,14 @@ import {
   TextInput,
   TextInputProps,
   ViewStyle,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../hooks/useAuth';
+import { authService } from '../../services/auth';
 import { useFeedbackStore } from '../../store/feedbackStore';
 import { getFriendlyErrorMessage } from '../../utils/errorMessages';
 
@@ -207,6 +210,9 @@ export default function RegisterScreen() {
   const [emailTaken, setEmailTaken] = useState('');
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
 
   const inputRefs = useRef<Partial<Record<FieldKey, ComponentRef<typeof TextInput> | null>>>({});
 
@@ -261,12 +267,74 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (role === 'driver') {
+      if (uploadingAvatar) {
+        setAvatarError('Please wait for your face photo to finish uploading.');
+        return;
+      }
+      if (!avatarUrl.trim()) {
+        setAvatarError('A clear photo of your face is required to register as a driver.');
+        return;
+      }
+    }
+
     if (!acceptedTerms) {
       setTermsError(true);
       return;
     }
 
     await submit();
+  };
+
+  const pickDriverPhoto = async (useCamera: boolean) => {
+    if (uploadingAvatar) return;
+    setAvatarError('');
+    try {
+      const perm = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (perm.status !== 'granted') {
+        setAvatarError(
+          useCamera
+            ? 'Camera permission is required to take your profile photo.'
+            : 'Photo library permission is required to choose your profile photo.'
+        );
+        return;
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.75,
+            cameraType: ImagePicker.CameraType.front,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.75,
+          });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      setUploadingAvatar(true);
+      const response: any = await authService.uploadAvatar(result.assets[0].uri);
+      const uploadedUrl = response?.url || response?.data?.url;
+      if (!uploadedUrl) {
+        throw new Error('Could not upload photo. Please try again.');
+      }
+      setAvatarUrl(String(uploadedUrl));
+      setAvatarError('');
+    } catch (err) {
+      setAvatarError(getFriendlyErrorMessage(err, 'register'));
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   const submit = async () => {
@@ -282,6 +350,7 @@ export default function RegisterScreen() {
         last_name: values.lastName.trim(),
         phone_number: normalizePhone(values.phone) as string,
         ...(role === 'driver' && {
+          profile_image_url: avatarUrl.trim(),
           driverLicense: values.driverLicense.trim(),
           vehicleType: values.vehicleType.trim(),
           vehicleModel: values.vehicleModel.trim(),
@@ -436,6 +505,58 @@ export default function RegisterScreen() {
     if (role === 'driver') {
       return (
         <>
+          <View style={[styles.avatarCard, avatarError ? styles.avatarCardError : null]}>
+            <View style={styles.avatarRow}>
+              <View style={styles.avatarPreviewWrap}>
+                {uploadingAvatar ? (
+                  <View style={styles.avatarPlaceholder}>
+                    <ActivityIndicator size="small" color={INK} />
+                  </View>
+                ) : avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatarPreview} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Ionicons name="person-circle-outline" size={38} color={MUTED} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.avatarContent}>
+                <View style={styles.avatarTitleRow}>
+                  <Text style={styles.avatarTitle}>Clear face photo</Text>
+                  <View style={styles.avatarBadge}>
+                    <Text style={styles.avatarBadgeText}>Required</Text>
+                  </View>
+                </View>
+                <Text style={styles.avatarHint}>
+                  Shown to restaurants at pickup and to customers on the live tracking map.
+                </Text>
+                <View style={styles.avatarActions}>
+                  <TouchableOpacity
+                    style={styles.avatarBtn}
+                    onPress={() => pickDriverPhoto(true)}
+                    disabled={uploadingAvatar}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="camera-outline" size={16} color={INK} />
+                    <Text style={styles.avatarBtnText}>
+                      {avatarUrl ? 'Retake' : 'Take Selfie'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.avatarBtn, styles.avatarBtnSecondary]}
+                    onPress={() => pickDriverPhoto(false)}
+                    disabled={uploadingAvatar}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="image-outline" size={16} color={INK} />
+                    <Text style={styles.avatarBtnSecondaryText}>Gallery</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            {!!avatarError && <Text style={styles.avatarErrorText}>{avatarError}</Text>}
+          </View>
+
           <Field
             {...bindField('driverLicense', {
               label: "Driver's license number",
@@ -755,4 +876,105 @@ const styles = StyleSheet.create({
   signIn: { paddingVertical: 12 },
   signInText: { fontSize: 15, color: MUTED },
   signInLink: { color: INK, fontWeight: '700' },
+
+  avatarCard: {
+    borderWidth: 1,
+    borderColor: LINE,
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: '#FFFDF8',
+    marginBottom: 18,
+  },
+  avatarCardError: {
+    borderColor: ERROR,
+    backgroundColor: ERROR_BG,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  avatarPreviewWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: ACCENT,
+    backgroundColor: BG,
+  },
+  avatarPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarContent: {
+    flex: 1,
+  },
+  avatarTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  avatarTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: INK,
+  },
+  avatarBadge: {
+    backgroundColor: ACCENT,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  avatarBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: INK,
+  },
+  avatarHint: {
+    fontSize: 12.5,
+    color: MUTED,
+    lineHeight: 17,
+    marginBottom: 10,
+  },
+  avatarActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  avatarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: ACCENT,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  avatarBtnSecondary: {
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: LINE,
+  },
+  avatarBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: INK,
+  },
+  avatarBtnSecondaryText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: INK,
+  },
+  avatarErrorText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: ERROR,
+  },
 });

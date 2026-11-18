@@ -13,11 +13,13 @@ import {
   AppState,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../../components/common/Button';
+import { resolveOrderMediaUrl } from '../../../components/customer/OrderCard';
 import { customerColors as colors } from '../../../constants/customerTheme';
 import { orderService } from '../../../services/order';
 import { useSocket, useSocketStatus } from '../../../hooks/useSocket';
@@ -46,6 +48,7 @@ type Order = {
   driver_last_name?: string;
   driver_phone?: string;
   driver_vehicle?: string;
+  driver_image?: string | null;
   rescue_courier?: {
     mode?: string;
     name?: string;
@@ -110,6 +113,14 @@ export default function OrderDetailsScreen() {
 
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [supportPhoneFallback, setSupportPhoneFallback] = useState<string | null>(null);
+  const [driverPhotoFailed, setDriverPhotoFailed] = useState(false);
+  const [showDriverPhotoModal, setShowDriverPhotoModal] = useState(false);
+
+  const driverPhotoUri = resolveOrderMediaUrl(order?.driver_image);
+
+  useEffect(() => {
+    setDriverPhotoFailed(false);
+  }, [order?.driver_image]);
 
   useEffect(() => {
     orderService
@@ -597,11 +608,20 @@ export default function OrderDetailsScreen() {
             ]}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons
-                name={order.status === 'picked_up' ? 'navigate-circle' : 'map'}
-                size={28}
-                color={order.status === 'picked_up' ? '#059669' : '#2563EB'}
-              />
+              {driverPhotoUri && !driverPhotoFailed && !order.rescue_courier?.name ? (
+                <Image
+                  source={{ uri: driverPhotoUri }}
+                  style={styles.statusBannerDriverPhoto}
+                  resizeMode="cover"
+                  onError={() => setDriverPhotoFailed(true)}
+                />
+              ) : (
+                <Ionicons
+                  name={order.status === 'picked_up' ? 'navigate-circle' : 'map'}
+                  size={28}
+                  color={order.status === 'picked_up' ? '#059669' : '#2563EB'}
+                />
+              )}
               <View style={styles.statusBannerTextContainer}>
                 <Text
                   style={[
@@ -800,8 +820,29 @@ export default function OrderDetailsScreen() {
               </View>
             </View>
           ) : order.driver_first_name ? (
-            <View style={styles.detailRow}>
-              <Ionicons name="person" size={20} color={colors.primaryText} />
+            <View style={[styles.detailRow, { alignItems: 'center' }]}>
+              <TouchableOpacity
+                activeOpacity={driverPhotoUri && !driverPhotoFailed ? 0.8 : 1}
+                disabled={!driverPhotoUri || driverPhotoFailed}
+                onPress={() => setShowDriverPhotoModal(true)}
+                style={styles.driverDetailAvatarBtn}
+              >
+                {driverPhotoUri && !driverPhotoFailed ? (
+                  <Image
+                    source={{ uri: driverPhotoUri }}
+                    style={styles.driverDetailAvatarImage}
+                    resizeMode="cover"
+                    onError={() => setDriverPhotoFailed(true)}
+                  />
+                ) : (
+                  <View style={styles.driverDetailAvatarFallback}>
+                    <Text style={styles.driverDetailAvatarInitials}>
+                      {(order.driver_first_name || 'D').charAt(0)}
+                      {(order.driver_last_name || '').charAt(0)}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>
                   {order.reassigned_at ? 'Driver (Reassigned)' : 'Driver'}
@@ -809,6 +850,18 @@ export default function OrderDetailsScreen() {
                 <Text style={styles.detailValue}>
                   {order.driver_first_name} {order.driver_last_name}
                 </Text>
+                {driverPhotoUri && !driverPhotoFailed && (
+                  <TouchableOpacity onPress={() => setShowDriverPhotoModal(true)}>
+                    <Text
+                      style={[
+                        styles.detailSubtext,
+                        { color: colors.primaryText, fontWeight: '600', marginBottom: 2 },
+                      ]}
+                    >
+                      Tap photo to view driver face
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {order.driver_phone && (
                   <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.driver_phone}`)}>
                     <Text style={[styles.detailSubtext, { color: colors.primaryText, fontWeight: '600' }]}>
@@ -1266,6 +1319,41 @@ export default function OrderDetailsScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={showDriverPhotoModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDriverPhotoModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.driverPhotoModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowDriverPhotoModal(false)}
+        >
+          <View style={styles.driverPhotoModalCard}>
+            {driverPhotoUri ? (
+              <Image
+                source={{ uri: driverPhotoUri }}
+                style={styles.driverPhotoModalImage}
+                resizeMode="cover"
+              />
+            ) : null}
+            <Text style={styles.driverPhotoModalName}>
+              {order.driver_first_name} {order.driver_last_name}
+            </Text>
+            {!!order.driver_vehicle && (
+              <Text style={styles.driverPhotoModalMeta}>{order.driver_vehicle}</Text>
+            )}
+            <TouchableOpacity
+              style={styles.driverPhotoModalCloseBtn}
+              onPress={() => setShowDriverPhotoModal(false)}
+            >
+              <Text style={styles.driverPhotoModalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -1731,5 +1819,88 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#64748B',
+  },
+  statusBannerDriverPhoto: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: '#E2E8F0',
+  },
+  driverDetailAvatarBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverDetailAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  driverDetailAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+  },
+  driverDetailAvatarInitials: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.primaryText,
+  },
+  driverPhotoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  driverPhotoModalCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+  },
+  driverPhotoModalImage: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    borderWidth: 4,
+    borderColor: '#F1F5F9',
+    marginBottom: 16,
+    backgroundColor: '#F1F5F9',
+  },
+  driverPhotoModalName: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  driverPhotoModalMeta: {
+    marginTop: 6,
+    fontSize: 13.5,
+    color: '#475569',
+    textAlign: 'center',
+  },
+  driverPhotoModalCloseBtn: {
+    marginTop: 18,
+    backgroundColor: '#1A1A1A',
+    paddingHorizontal: 28,
+    paddingVertical: 11,
+    borderRadius: 999,
+  },
+  driverPhotoModalCloseText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
